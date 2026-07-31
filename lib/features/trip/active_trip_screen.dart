@@ -17,7 +17,7 @@ class ActiveTripArgs {
   final double dropoffLng;
   final String dropoffAddress;
 
-  /// Ride type: `'economy'` (وصلني توفير) or `'vip'` (وصلني VIP).
+  /// Backend-compatible ride type: `'economy'` | `'comfort'` | `'premium'`.
   final String rideType;
 
   /// Payment method: `'cash'` (كاش) or `'card'` (بطاقة).
@@ -71,6 +71,13 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   // Simulated driver info (will come from the backend/socket later).
   static const String _driverName = 'أحمد محمد';
   static const String _driverCar = 'Hyundai Elantra · ١٢٣٤ أ ب ج';
+
+  /// Arabic label shown for the backend ride type.
+  String get _rideTypeLabel => switch (_args.rideType) {
+    'comfort' => 'وصلني مريح',
+    'premium' => 'وصلني VIP',
+    _ => 'وصلني توفير', // 'economy'
+  };
 
   late final ActiveTripArgs _args;
   late final osm.MapController mapController;
@@ -325,7 +332,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                 children: [
                   _infoChip(
                     Icons.directions_car_rounded,
-                    _args.rideType == 'vip' ? 'وصلني VIP' : 'وصلني توفير',
+                    _rideTypeLabel,
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   _infoChip(

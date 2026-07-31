@@ -252,6 +252,12 @@ class ApiService {
   // ── Ride Endpoints (Rider) ────────────────────────────
 
   /// Request a new ride.
+  ///
+  /// Sends the pickup/dropoff coordinates and addresses plus the
+  /// backend-compatible `rideType` (`economy` | `comfort` | `premium`) and
+  /// `paymentMethod` (`cash` | `card`) in the body expected by the backend
+  /// (`originLat`/`originLng`, `destLat`/`destLng`, `pickupAddress`,
+  /// `destinationAddress`, `rideType`, `paymentMethod`).
   Future<Map<String, dynamic>> requestRide({
     required double pickupLat,
     required double pickupLng,
@@ -259,16 +265,22 @@ class ApiService {
     required double dropoffLat,
     required double dropoffLng,
     required String dropoffAddress,
+    required String rideType,
+    required String paymentMethod,
   }) async {
     if (!backendEnabled) return <String, dynamic>{'success': true};
     await _ensureTokenLoaded();
     final response = await _dio.post(
       '/rides/request',
       data: {
-        'pickupLocation': {'lat': pickupLat, 'lng': pickupLng},
+        'originLat': pickupLat,
+        'originLng': pickupLng,
+        'destLat': dropoffLat,
+        'destLng': dropoffLng,
         'pickupAddress': pickupAddress,
-        'dropoffLocation': {'lat': dropoffLat, 'lng': dropoffLng},
-        'dropoffAddress': dropoffAddress,
+        'destinationAddress': dropoffAddress,
+        'rideType': rideType,
+        'paymentMethod': paymentMethod,
       },
     );
     return response.data as Map<String, dynamic>;

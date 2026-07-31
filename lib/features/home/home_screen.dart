@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 import 'package:geolocator/geolocator.dart';
 
+import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 import 'package:wasalny_rider/features/home/finding_driver_dialog.dart';
@@ -265,6 +266,32 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       ),
     );
     if (result == null || !mounted) return;
+
+    // Create the ride on the backend with a backend-compatible payload.
+    // If the request fails we still continue with the simulated flow so the
+    // user experience never breaks.
+    try {
+      await ApiService.instance.requestRide(
+        pickupLat: result.pickupLat,
+        pickupLng: result.pickupLng,
+        pickupAddress: result.pickupAddress,
+        dropoffLat: result.dropoffLat,
+        dropoffLng: result.dropoffLng,
+        dropoffAddress: result.dropoffAddress,
+        rideType: result.type,
+        paymentMethod: result.payment,
+      );
+      logInfo('HomeScreen', 'ride request submitted successfully');
+    } catch (e) {
+      logWarning(
+        'HomeScreen',
+        'requestRide failed — continuing simulation: $e',
+      );
+    }
+
+    // The awaited request may have taken a while — bail out if the screen
+    // was disposed in the meantime.
+    if (!mounted) return;
 
     // Searching-for-driver radar dialog (auto-dismisses when a driver is found).
     final found = await showDialog<bool>(

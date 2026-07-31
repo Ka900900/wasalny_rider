@@ -38,7 +38,8 @@ const List<_PlaceOption> _popularPlaces = [
 ];
 
 /// Bottom sheet where the passenger picks a destination, a ride type
-/// (Economy / VIP), a payment method (Cash / Card) and confirms the request.
+/// (Economy / Comfort / Premium), a payment method (Cash / Card) and
+/// confirms the request.
 ///
 /// Pops with a [RideSelection] record on confirm, or `null` when dismissed.
 class RideOptionsSheet extends StatefulWidget {
@@ -59,7 +60,7 @@ class RideOptionsSheet extends StatefulWidget {
 }
 
 class _RideOptionsSheetState extends State<RideOptionsSheet> {
-  String _selectedType = 'economy'; // 'economy' | 'vip'
+  String _selectedType = 'economy'; // 'economy' | 'comfort' | 'premium'
   String _selectedPayment = 'cash'; // 'cash' | 'card'
   _PlaceOption? _destination;
 
@@ -85,13 +86,19 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
     return km < 1.0 ? 1.0 : km;
   }
 
-  /// Dynamic fare estimate for a given ride type:
-  /// economy = 15 EGP base + 5/km, VIP = 30 + 8/km.
+  /// Dynamic fare estimate (EGP) for a given ride type.
+  ///
+  /// Mirrors the backend pricing (~7 EGP/km in normal hours, 15 in peak)
+  /// so the estimate stays close to the final price:
+  /// economy = 7/km, comfort = 9/km, premium = 13/km.
   double _fareForType(String type) {
     final km = _distanceKm;
-    return type == 'vip'
-        ? (30 + 8 * km).roundToDouble()
-        : (15 + 5 * km).roundToDouble();
+    final ratePerKm = switch (type) {
+      'comfort' => 9.0,
+      'premium' => 13.0,
+      _ => 7.0, // 'economy'
+    };
+    return (ratePerKm * km).roundToDouble();
   }
 
   double get _fare => _fareForType(_selectedType);
@@ -175,26 +182,38 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // Ride type cards
+            // Ride type cards — Economy / Comfort / Premium, matching the
+            // backend's allowed values. The family/xl tier is intentionally
+            // not shown to riders.
             Row(
               children: [
                 Expanded(
                   child: _buildRideCard(
                     type: 'economy',
                     label: 'وصلني توفير',
-                    desc: 'حتى 4 ركاب',
+                    desc: 'اقتصادي',
                     icon: Icons.directions_car_rounded,
                     fare: _fareForType('economy'),
                   ),
                 ),
-                const SizedBox(width: AppSpacing.md),
+                const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: _buildRideCard(
-                    type: 'vip',
+                    type: 'comfort',
+                    label: 'وصلني مريح',
+                    desc: 'راحة أعلى',
+                    icon: Icons.airline_seat_recline_normal_rounded,
+                    fare: _fareForType('comfort'),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: _buildRideCard(
+                    type: 'premium',
                     label: 'وصلني VIP',
-                    desc: 'خدمة مميزة',
+                    desc: 'ممتاز',
                     icon: Icons.stars_rounded,
-                    fare: _fareForType('vip'),
+                    fare: _fareForType('premium'),
                   ),
                 ),
               ],
@@ -345,7 +364,10 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.md,
+        ),
         decoration: BoxDecoration(
           color: selected ? AppColors.primaryContainer : AppColors.cardBg,
           borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
@@ -359,7 +381,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
             Icon(
               icon,
               color: selected ? AppColors.primaryGreen : AppColors.textMuted,
-              size: 32,
+              size: 28,
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
