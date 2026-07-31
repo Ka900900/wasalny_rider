@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wasalny_rider/core/services/api_service.dart';
+import 'package:wasalny_rider/core/services/auth_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 
 /// Passenger profile screen.
@@ -52,7 +53,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String get _email => _profile?['email'] as String? ?? '';
 
   Future<void> _logout() async {
-    ApiService.instance.clearToken();
+    // End the Firebase session AND clear the stored JWT before leaving.
+    await AuthService.instance.signOut();
     if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
   }

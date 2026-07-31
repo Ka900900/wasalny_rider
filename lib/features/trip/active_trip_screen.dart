@@ -6,6 +6,7 @@ import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
+import 'package:wasalny_rider/features/trip/trip_rating_screen.dart';
 
 /// Arguments passed from the ride-options flow to [ActiveTripScreen].
 class ActiveTripArgs {
@@ -66,6 +67,10 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     payment: 'cash',
     fare: 40,
   );
+
+  // Simulated driver info (will come from the backend/socket later).
+  static const String _driverName = 'أحمد محمد';
+  static const String _driverCar = 'Hyundai Elantra · ١٢٣٤ أ ب ج';
 
   late final ActiveTripArgs _args;
   late final osm.MapController mapController;
@@ -218,7 +223,11 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   }
 
   void _completeTrip() {
-    Navigator.pushReplacementNamed(context, '/rating');
+    Navigator.pushReplacementNamed(
+      context,
+      '/rating',
+      arguments: TripRatingArgs(fare: _args.fare, driverName: _driverName),
+    );
   }
 
   void _callDriver() {
@@ -353,9 +362,9 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('أحمد محمد', style: AppTextStyles.titleMedium),
+                        Text(_driverName, style: AppTextStyles.titleMedium),
                         Text(
-                          'Hyundai Elantra · ١٢٣٤ أ ب ج',
+                          _driverCar,
                           style: AppTextStyles.bodySmall,
                         ),
                       ],

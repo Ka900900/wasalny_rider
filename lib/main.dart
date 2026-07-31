@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
@@ -44,6 +45,14 @@ class MyApp extends StatelessWidget {
       theme: AppTheme.darkTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.dark,
+      // Arabic is the primary UI language (RTL layout).
+      locale: const Locale('ar'),
+      supportedLocales: const [Locale('ar'), Locale('en')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       initialRoute: '/splash',
       onGenerateRoute: _onGenerateRoute,
     );
@@ -65,7 +74,9 @@ class MyApp extends StatelessWidget {
           ActiveTripScreen(args: settings.arguments as ActiveTripArgs?),
         );
       case '/rating':
-        return RouteTransitions.slideUp(const TripRatingScreen());
+        return RouteTransitions.slideUp(
+          TripRatingScreen(args: settings.arguments as TripRatingArgs?),
+        );
       case '/history':
         return RouteTransitions.slideHorizontal(const TripHistoryScreen());
       case '/notifications':

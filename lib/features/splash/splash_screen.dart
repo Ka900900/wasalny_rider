@@ -27,7 +27,7 @@ class _SplashScreenState extends State<SplashScreen>
   late final Animation<double> _scale;
   late final Animation<double> _glowPulse;
 
-  late final Future<void> _initializationFuture;
+  late Future<void> _initializationFuture;
 
   /// Guards against navigating more than once (e.g. when the FutureBuilder
   /// rebuilds after initialization completes).
@@ -118,6 +118,11 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _initFirebase() async {
+    // Already initialized in main() — nothing to do.
+    if (Firebase.apps.isNotEmpty) {
+      logInfo('SplashScreen', 'Firebase already initialized — skipping');
+      return;
+    }
     try {
       await Firebase.initializeApp().timeout(
         const Duration(seconds: 10),
@@ -361,7 +366,8 @@ class _SplashScreenState extends State<SplashScreen>
                                 onPressed: () {
                                   // Re-trigger initialization
                                   setState(() {
-                                    // Force rebuild
+                                    _hasNavigated = false;
+                                    _initializationFuture = _initializeApp();
                                   });
                                 },
                                 child: const Text('إعادة المحاولة'),

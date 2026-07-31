@@ -2,12 +2,23 @@ import 'package:flutter/material.dart';
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 
+/// Optional ride context passed to the rating screen from the active trip.
+class TripRatingArgs {
+  final double? fare;
+  final String? driverName;
+
+  const TripRatingArgs({this.fare, this.driverName});
+}
+
 /// Post-trip rating screen.
 ///
 /// Provides an interactive 5-star rating, an optional feedback text box and a
 /// "إرسال التقييم" button that returns the passenger to the home screen.
 class TripRatingScreen extends StatefulWidget {
-  const TripRatingScreen({super.key});
+  const TripRatingScreen({super.key, this.args});
+
+  /// Ride context (fare / driver name) shown at the top, if available.
+  final TripRatingArgs? args;
 
   @override
   State<TripRatingScreen> createState() => _TripRatingScreenState();
@@ -21,6 +32,18 @@ class _TripRatingScreenState extends State<TripRatingScreen> {
   void dispose() {
     _feedbackController.dispose();
     super.dispose();
+  }
+
+  /// Small summary of the trip context (driver + fare), if provided.
+  String get _rideSummary {
+    final args = widget.args;
+    final driver = args?.driverName;
+    final fare = args?.fare;
+    final parts = <String>[
+      if (driver != null && driver.isNotEmpty) 'سائقك: $driver',
+      if (fare != null) 'التكلفة: ${fare.round()} جنيه',
+    ];
+    return parts.join(' · ');
   }
 
   void _submit() {
@@ -69,6 +92,14 @@ class _TripRatingScreenState extends State<TripRatingScreen> {
                 textAlign: TextAlign.center,
                 style: AppTextStyles.bodyMedium,
               ),
+              if (widget.args != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  _rideSummary,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.bodySmall,
+                ),
+              ],
               const SizedBox(height: AppSpacing.xxl),
 
               // Interactive star rating
