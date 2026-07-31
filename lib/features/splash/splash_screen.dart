@@ -267,31 +267,31 @@ class _SplashScreenState extends State<SplashScreen>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Animated logo with glow
+                    // Animated logo with neon green glow
                     AnimatedBuilder(
                       animation: _glowPulse,
                       builder: (context, child) {
                         return Container(
-                          width: 120,
-                          height: 120,
+                          width: 160,
+                          height: 160,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: AppColors.primaryContainer,
                             boxShadow: [
                               BoxShadow(
                                 color: AppColors.primary.withValues(
-                                  alpha: 0.5 * _glowPulse.value,
+                                  alpha: 0.6 * _glowPulse.value,
                                 ),
-                                blurRadius: 80 * _glowPulse.value,
-                                spreadRadius: 15 * _glowPulse.value,
+                                blurRadius: 100 * _glowPulse.value,
+                                spreadRadius: 25 * _glowPulse.value,
                               ),
                             ],
                           ),
-                          child: Center(
-                            child: Icon(
-                              Icons.directions_car_rounded,
-                              size: 56,
-                              color: AppColors.primary,
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Image.asset(
+                              'assets/images/app_logo.png',
+                              fit: BoxFit.contain,
                             ),
                           ),
                         );

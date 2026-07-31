@@ -7,6 +7,7 @@ class UserModel {
   final String? avatarUrl;
   final String role; // 'RIDER', 'DRIVER', etc.
   final String? email;
+  final bool isActive;
 
   const UserModel({
     required this.id,
@@ -16,6 +17,7 @@ class UserModel {
     this.avatarUrl,
     this.role = 'RIDER',
     this.email,
+    this.isActive = true,
   });
 
   String get fullName {
@@ -34,6 +36,7 @@ class UserModel {
       avatarUrl: json['avatarUrl'] as String?,
       role: json['role'] as String? ?? 'RIDER',
       email: json['email'] as String?,
+      isActive: json['isActive'] as bool? ?? true,
     );
   }
 
@@ -46,6 +49,7 @@ class UserModel {
       if (avatarUrl != null) 'avatarUrl': avatarUrl,
       'role': role,
       if (email != null) 'email': email,
+      'isActive': isActive,
     };
   }
 }

@@ -4,41 +4,41 @@ import 'package:google_fonts/google_fonts.dart';
 class AppColors {
   AppColors._();
 
-  // Primary Background
-  static const Color primaryBg = Color(0xFF0D0D0D);
+  // Primary Background — Pure Black
+  static const Color primaryBg = Color(0xFF000000);
 
   // Secondary Background
-  static const Color secondaryBg = Color(0xFF151515);
+  static const Color secondaryBg = Color(0xFF0A0A0A);
 
   // Surface
-  static const Color surface = Color(0xFF1E1E1E);
+  static const Color surface = Color(0xFF111111);
 
   // Cards
-  static const Color card = Color(0xFF242424);
-  static const Color cardElevated = Color(0xFF2A2A2A);
+  static const Color card = Color(0xFF1A1A1A);
+  static const Color cardElevated = Color(0xFF222222);
 
-  // Text
+  // Text — White per brand identity
   static const Color textPrimary = Color(0xFFFFFFFF);
-  static const Color textSecondary = Color(0xFFD6D6D6);
-  static const Color textMuted = Color(0xFFB3B3B3);
+  static const Color textSecondary = Color(0xFFFFFFFF);
+  static const Color textMuted = Color(0xFFE0E0E0);
 
-  // Primary Accent — darker, eye-friendly green (#2E7D32 / green.shade800)
-  static const Color primary = Color(0xFF2E7D32);
-  static const Color primaryDark = Color(0xFF1B5E20);
-  static const Color primaryLight = Color(0xFF388E3C);
-  static const Color primaryFaded = Color(0x332E7D32);
-  static const Color primaryContainer = Color(0xFF0D2410);
+  // Primary Accent — Neon Green (#39FF14)
+  static const Color primary = Color(0xFF39FF14);
+  static const Color primaryDark = Color(0xFF2ECC00);
+  static const Color primaryLight = Color(0xFF5EFF40);
+  static const Color primaryFaded = Color(0x3339FF14);
+  static const Color primaryContainer = Color(0xFF0D2400);
 
   // Online Status
-  static const Color online = Color(0xFF2E7D32);
+  static const Color online = Color(0xFF39FF14);
 
   // Borders
   static const Color border = Color(0xFF303030);
   static const Color borderLight = Color(0xFF3A3A3A);
 
   // Semantic
-  static const Color success = Color(0xFF2E7D32);
-  static const Color successContainer = Color(0xFF0D2410);
+  static const Color success = Color(0xFF39FF14);
+  static const Color successContainer = Color(0xFF0D2400);
   static const Color error = Color(0xFFFF4D4F);
   static const Color errorContainer = Color(0xFF2A0F0F);
   static const Color warning = Color(0xFFFFC107);
@@ -61,7 +61,7 @@ class AppColors {
   static const Color surfaceElevated = cardElevated;
   static const Color glassBg = Color(0x14FFFFFF);
   static const Color glassBorder = border;
-  static const Color textOnPrimary = textPrimary;
+  static const Color textOnPrimary = Color(0xFF000000);
 
   static const LinearGradient primaryGradient = LinearGradient(
     colors: [primaryLight, primaryDark],

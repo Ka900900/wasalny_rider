@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
@@ -7,13 +8,21 @@ import 'package:wasalny_rider/features/splash/splash_screen.dart';
 import 'package:wasalny_rider/features/auth/login_screen.dart';
 import 'package:wasalny_rider/features/home/home_screen.dart';
 
-/// [runApp] is called immediately without awaiting any async init.
-/// All service initialisation is delegated to [SplashScreen] so the UI
-/// appears instantly and the user sees a smooth branded experience while
-/// the app warms up.
-void main() {
+/// [runApp] is called only after Firebase has been initialised in `main()`,
+/// so any service that touches Firebase (e.g. [AuthService] → `FirebaseAuth`)
+/// never hits the `[core/no-app] No Firebase App '[DEFAULT]' has been created`
+/// error.
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   setupLogging();
+  try {
+    // No `firebase_options.dart` in this project — use the config bundled in
+    // the native resources (google-services.json / GoogleService-Info.plist).
+    await Firebase.initializeApp();
+  } catch (e, stack) {
+    logError('main', 'Firebase initialization failed', e, stack);
+    rethrow;
+  }
   runApp(const MyApp());
 }
 

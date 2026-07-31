@@ -122,22 +122,80 @@ class ApiService {
 
   /// Sign in / register via Firebase ID Token.
   ///
-  /// Sends the Firebase ID Token (obtained after successful phone OTP
-  /// verification) to the backend. The backend verifies the token with
-  /// Firebase Admin SDK, looks up / creates the user in PostgreSQL, and
-  /// returns the application's own JWT.
+  /// Sends the Firebase ID Token (obtained after Google Sign-In) to the
+  /// backend. The backend verifies the token with Firebase Admin SDK, looks
+  /// up / creates the user in PostgreSQL, and returns the application's own
+  /// JWT. Optional Google profile data (`name`, `email`, `photoUrl`) is
+  /// forwarded so the `User` record stays in sync with the Google account.
   Future<Map<String, dynamic>> signInWithFirebase(
-    String firebaseIdToken,
-  ) async {
+    String firebaseIdToken, {
+    String? name,
+    String? email,
+    String? photoUrl,
+  }) async {
     if (!backendEnabled) return <String, dynamic>{'success': true};
     final response = await _dio.post(
       '/auth/firebase-login',
-      data: {'firebaseIdToken': firebaseIdToken},
+      data: {
+        'firebaseIdToken': firebaseIdToken,
+        if (name != null && name.isNotEmpty) 'name': name,
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (photoUrl != null && photoUrl.isNotEmpty) 'photoUrl': photoUrl,
+      },
     );
     final result = response.data as Map<String, dynamic>;
     if (result['token'] != null) {
       saveToken(result['token'] as String);
     }
+    return result;
+  }
+
+  /// Sign in with email + password via `POST /auth/login`.
+  ///
+  /// The backend verifies the credentials and returns the app JWT in the
+  /// top-level `token` field, which is persisted automatically.
+  Future<Map<String, dynamic>> loginWithEmailPassword({
+    required String email,
+    required String password,
+  }) async {
+    if (!backendEnabled) return <String, dynamic>{'success': true};
+    final response = await _dio.post(
+      '/auth/login',
+      data: {'email': email.trim(), 'password': password},
+    );
+    final result = response.data as Map<String, dynamic>;
+    final token = _extractToken(result);
+    if (token != null) saveToken(token);
+    return result;
+  }
+
+  /// Register a new rider with email + password via `POST /auth/register`.
+  ///
+  /// Sends `email`, `password`, `firstName`, `lastName` and an optional
+  /// `phoneNumber`. The backend returns a JWT on success, which is saved
+  /// automatically (the rider is signed in right away).
+  Future<Map<String, dynamic>> registerWithEmailPassword({
+    required String email,
+    required String password,
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+  }) async {
+    if (!backendEnabled) return <String, dynamic>{'success': true};
+    final response = await _dio.post(
+      '/auth/register',
+      data: {
+        'email': email.trim(),
+        'password': password,
+        'firstName': firstName.trim(),
+        'lastName': lastName.trim(),
+        if (phoneNumber != null && phoneNumber.trim().isNotEmpty)
+          'phoneNumber': phoneNumber.trim(),
+      },
+    );
+    final result = response.data as Map<String, dynamic>;
+    final token = _extractToken(result);
+    if (token != null) saveToken(token);
     return result;
   }
 
@@ -190,6 +248,22 @@ class ApiService {
         if (lastName != null) 'lastName': lastName,
         if (avatarUrl != null) 'avatarUrl': avatarUrl,
       },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Update the rider's phone number on the backend.
+  ///
+  /// Used when the Google account has no real phone number (e.g. the backend
+  /// stored a `firebase:` placeholder) and the rider must provide a real one.
+  Future<Map<String, dynamic>> updatePhoneNumber({
+    required String phoneNumber,
+  }) async {
+    if (!backendEnabled) return <String, dynamic>{'success': true};
+    await _ensureTokenLoaded();
+    final response = await _dio.post(
+      '/auth/update-phone',
+      data: {'phoneNumber': phoneNumber},
     );
     return response.data as Map<String, dynamic>;
   }
@@ -254,4 +328,17 @@ class ApiService {
   }
 
   // ── Helper ───────────────────────────────────────────
+
+  /// Extracts the JWT from an auth response, supporting both a top-level
+  /// `token` field and a nested `data.token` shape (defensive).
+  String? _extractToken(Map<String, dynamic> result) {
+    final token = result['token'];
+    if (token is String && token.isNotEmpty) return token;
+    final data = result['data'];
+    if (data is Map) {
+      final nested = data['token'];
+      if (nested is String && nested.isNotEmpty) return nested;
+    }
+    return null;
+  }
 }

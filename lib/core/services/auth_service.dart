@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 
@@ -146,6 +148,145 @@ class AuthService {
       );
     }
     return token;
+  }
+
+  // ──────────────────────────────────────────────
+  // Google Sign-In
+  // ──────────────────────────────────────────────
+
+  /// Signs in with Google, exchanges the credential with Firebase, obtains
+  /// the Firebase ID Token, then sends it to the backend for the app JWT.
+  ///
+  /// Returns a map containing the app JWT plus the Google profile data
+  /// (`displayName`, `email`, `photoUrl`, `uid`). Throws on any failure.
+  ///
+  /// **Web note:** On web, `GoogleSignIn.signIn()` is deprecated and does not
+  /// reliably return an `idToken` (see `google_sign_in_web`). Instead, we use
+  /// `FirebaseAuth.signInWithPopup()` which correctly uses the Google
+  /// Identity Services (GIS) library and returns the idToken.
+  Future<Map<String, dynamic>> signInWithGoogle() async {
+    try {
+      String idToken;
+      String displayName;
+      String email;
+      String photoUrl;
+      String uid;
+
+      if (kIsWeb) {
+        // ==========================================
+        // WEB: Use Firebase Auth signInWithPopup
+        // (GoogleSignIn.signIn() is deprecated on web
+        //  and can't reliably provide an idToken)
+        // ==========================================
+        final GoogleAuthProvider provider = GoogleAuthProvider();
+        final UserCredential result = await _auth.signInWithPopup(provider);
+        final User? user = result.user;
+        if (user == null) {
+          throw FirebaseAuthException(
+            code: 'user-null',
+            message: 'لم يتم إنشاء حساب Firebase بعد التحقق من جوجل.',
+          );
+        }
+
+        final token = await user.getIdToken(true);
+        if (token == null || token.isEmpty) {
+          throw FirebaseAuthException(
+            code: 'no-id-token',
+            message: 'فشل في الحصول على معرف Google ID Token.',
+          );
+        }
+        idToken = token;
+        displayName = user.displayName ?? '';
+        email = user.email ?? '';
+        photoUrl = user.photoURL ?? '';
+        uid = user.uid;
+      } else {
+        // ==========================================
+        // MOBILE (Android/iOS): Use GoogleSignIn
+        // ==========================================
+        final GoogleSignIn googleSignIn = GoogleSignIn();
+        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+        if (googleUser == null) {
+          throw FirebaseAuthException(
+            code: 'cancelled',
+            message: 'تم إلغاء تسجيل الدخول بواسطة جوجل.',
+          );
+        }
+
+        // 2. Obtain Google authentication details
+        final GoogleSignInAuthentication googleAuth =
+            await googleUser.authentication;
+
+        if (googleAuth.idToken == null) {
+          throw FirebaseAuthException(
+            code: 'no-id-token',
+            message: 'فشل في الحصول على معرف Google ID Token.',
+          );
+        }
+
+        // 3. Create Firebase credential and sign in
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+        final UserCredential result = await _auth.signInWithCredential(
+          credential,
+        );
+        final User? user = result.user;
+        if (user == null) {
+          throw FirebaseAuthException(
+            code: 'user-null',
+            message: 'لم يتم إنشاء حساب Firebase بعد التحقق من جوجل.',
+          );
+        }
+
+        // 4. Get the Firebase ID Token
+        final token = await user.getIdToken(true);
+        if (token == null || token.isEmpty) {
+          throw FirebaseAuthException(
+            code: 'token-error',
+            message: 'فشل في استخراج Firebase ID Token.',
+          );
+        }
+        idToken = token;
+
+        // 5. Extract Google profile data
+        displayName = user.displayName ?? '';
+        email = user.email ?? '';
+        photoUrl = user.photoURL ?? '';
+        uid = user.uid;
+      }
+
+      // ==========================================
+      // Exchange Firebase Token → Backend JWT
+      // ==========================================
+      final loginResult = await ApiService.instance.signInWithFirebase(
+        idToken,
+        name: displayName,
+        email: email,
+        photoUrl: photoUrl,
+      );
+
+      return {
+        'token': loginResult['token'],
+        'displayName': displayName,
+        'email': email,
+        'photoUrl': photoUrl,
+        'uid': uid,
+      };
+    } on FirebaseAuthException {
+      rethrow;
+    } catch (exception) {
+      throw Exception('فشل تسجيل الدخول بحساب جوجل: $exception');
+    }
+  }
+
+  /// Disconnects the Google Sign-In session (useful for switching accounts).
+  Future<void> disconnectGoogle() async {
+    final GoogleSignIn googleSignIn = GoogleSignIn();
+    if (await googleSignIn.isSignedIn()) {
+      await googleSignIn.disconnect();
+    }
   }
 
   // ──────────────────────────────────────────────

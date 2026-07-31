@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Session/debug scratch files
+_env_check.txt
+build_apk_output.txt

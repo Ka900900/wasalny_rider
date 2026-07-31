@@ -39,6 +39,7 @@ dependencies:
   firebase_core: ^3.1.0
   firebase_auth: ^5.2.0
   firebase_crashlytics: ^4.3.10
+  google_sign_in: ^6.2.1
 
   # Maps & Location
   flutter_osm_plugin: ^1.4.5
@@ -73,13 +74,22 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
+   
+ 
+
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  
+  assets:
+    - assets/images/app_logo.png
+  
 
-  # To add assets to your application, add an assets section, like this:
+
+
+# To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
