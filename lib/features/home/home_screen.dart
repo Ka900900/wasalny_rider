@@ -6,6 +6,8 @@ import 'package:geolocator/geolocator.dart';
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
+import 'package:wasalny_rider/features/home/finding_driver_dialog.dart';
+import 'package:wasalny_rider/features/home/ride_options_sheet.dart';
 
 /// Main rider home screen with an interactive map and a "Request Ride" button.
 class RiderHomeScreen extends StatefulWidget {
@@ -108,7 +110,67 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     }
   }
 
-  Future<void> _requestRide() async {
+  /// Top-bar action icon that navigates to the given named route.
+  Widget _topBarIcon(IconData icon, String route) {
+    return InkWell(
+      onTap: () => Navigator.pushNamed(context, route),
+      borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: AppColors.primaryBg.withValues(alpha: 0.7),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          color: AppColors.textPrimary,
+          size: AppSpacing.iconMd,
+        ),
+      ),
+    );
+  }
+
+  /// Tappable destination search bar that opens the ride-options sheet.
+  Widget _buildSearchBar() {
+    return InkWell(
+      onTap: _requestRide,
+      borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+          boxShadow: AppColors.shadowSm,
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.search_rounded, color: AppColors.primaryGreen),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(
+                'إلى أين تريد الذهاب؟',
+                style: AppTextStyles.bodyLarge?.copyWith(
+                  color: AppColors.textMuted,
+                ),
+              ),
+            ),
+            Icon(Icons.tune_rounded, color: AppColors.primaryGreen),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _requestRide() => _openRideOptions();
+
+  /// Opens the ride-options bottom sheet, then the "searching for driver"
+  /// radar dialog, and finally navigates to the active trip when a driver is
+  /// found.
+  Future<void> _openRideOptions() async {
     if (_currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -119,14 +181,24 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       return;
     }
 
-    // TODO: In the next phase, this will open a full ride-request flow
-    // with destination selection, fare estimation, etc.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('سيتم تفعيل طلب الرحلات في المرحلة القادمة 🚀'),
-        backgroundColor: AppColors.info,
-      ),
+    final result = await showModalBottomSheet<RideSelection>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const RideOptionsSheet(),
     );
+    if (result == null || !mounted) return;
+
+    // Searching-for-driver radar dialog (auto-dismisses when a driver is found).
+    final found = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const FindingDriverDialog(),
+    );
+
+    if (found == true && mounted) {
+      Navigator.pushNamed(context, '/active-trip');
+    }
   }
 
   @override
@@ -175,28 +247,47 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                   ],
                 ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.directions_car_rounded,
-                    color: AppColors.primary,
-                    size: AppSpacing.iconMd,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.directions_car_rounded,
+                              color: AppColors.primary,
+                              size: AppSpacing.iconMd,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Text(
+                              'Waslny',
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(color: AppColors.textPrimary),
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Text(
+                              'Rider',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(color: AppColors.textMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      _topBarIcon(Icons.history_rounded, '/history'),
+                      const SizedBox(width: AppSpacing.sm),
+                      _topBarIcon(
+                        Icons.notifications_rounded,
+                        '/notifications',
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      _topBarIcon(Icons.person_rounded, '/profile'),
+                    ],
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'Waslny',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Text(
-                    'Rider',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: AppColors.textMuted,
-                    ),
-                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildSearchBar(),
                 ],
               ),
             ),

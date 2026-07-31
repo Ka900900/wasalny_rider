@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:wasalny_rider/core/constants/api_constants.dart';
 import 'package:wasalny_rider/core/network/dio_client.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 
@@ -17,8 +18,7 @@ class ApiService {
   ApiService._();
 
   // Same backend as the Captain app
-  static const String _baseUrl =
-      'https://wasalny-backend-production.up.railway.app/api/v1';
+  static const String _baseUrl = ApiConstants.baseUrl;
 
   /// Public base URL used by other services.
   static String get baseUrl => _baseUrl;

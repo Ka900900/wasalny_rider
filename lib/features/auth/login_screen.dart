@@ -23,15 +23,11 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   bool _isLoading = false;
-  bool _isRegisterMode = false;
   bool _obscurePassword = true;
 
   final _formKey = GlobalKey<FormState>();
-  final _firstNameController = TextEditingController();
-  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _phoneController = TextEditingController();
 
   late final AnimationController _animController;
   late final Animation<double> _fadeIn;
@@ -88,15 +84,11 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  /// Validates the form and dispatches to login or register.
+  /// Validates the form and signs in with email + password.
   void _submitForm() {
     FocusScope.of(context).unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    if (_isRegisterMode) {
-      _register();
-    } else {
-      _login();
-    }
+    _login();
   }
 
   /// Signs in with email + password via `POST /auth/login`.
@@ -120,28 +112,9 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  /// Creates a new rider account via `POST /auth/register` (auto-login).
-  Future<void> _register() async {
-    setState(() => _isLoading = true);
-    try {
-      await ApiService.instance.registerWithEmailPassword(
-        email: _emailController.text,
-        password: _passwordController.text,
-        firstName: _firstNameController.text,
-        lastName: _lastNameController.text,
-        phoneNumber: _phoneController.text,
-      );
-      if (!mounted) return;
-      await _completePostAuth();
-    } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      _showError(_mapFirebaseError(e));
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      _showError(_mapError(e));
-    }
+  /// Navigates to the register screen.
+  void _goToRegister() {
+    Navigator.pushNamed(context, '/register');
   }
 
   /// Shared post-auth steps: ensure the backend profile has a real phone
@@ -268,11 +241,8 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void dispose() {
     _animController.dispose();
-    _firstNameController.dispose();
-    _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -389,135 +359,71 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                           const SizedBox(height: AppSpacing.xl),
 
-                          // Login / Register toggle
-                          SegmentedButton<bool>(
-                            segments: const [
-                              ButtonSegment(
-                                value: false,
-                                label: Text('تسجيل الدخول'),
-                                icon: Icon(Icons.login),
-                              ),
-                              ButtonSegment(
-                                value: true,
-                                label: Text('حساب جديد'),
-                                icon: Icon(Icons.person_add),
-                              ),
-                            ],
-                            selected: {_isRegisterMode},
-                            onSelectionChanged: _isLoading
-                                ? null
-                                : (selection) => setState(
-                                    () => _isRegisterMode = selection.first,
-                                  ),
-                            showSelectedIcon: false,
-                            style: ButtonStyle(
-                              backgroundColor: WidgetStateProperty.resolveWith((
-                                states,
-                              ) {
-                                return states.contains(WidgetState.selected)
-                                    ? AppColors.primaryContainer
-                                    : AppColors.card;
-                              }),
-                              foregroundColor: WidgetStateProperty.resolveWith((
-                                states,
-                              ) {
-                                return states.contains(WidgetState.selected)
-                                    ? AppColors.primary
-                                    : AppColors.textMuted;
-                              }),
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.lg),
-
                           // Email / password form
-                          AnimatedSize(
-                            duration: const Duration(milliseconds: 250),
-                            curve: Curves.easeInOut,
-                            child: Form(
-                              key: _formKey,
-                              child: Column(
-                                children: [
-                                  if (_isRegisterMode) ...[
-                                    _buildTextField(
-                                      controller: _firstNameController,
-                                      label: 'الاسم الأول',
-                                      icon: Icons.person_outline,
-                                      validator: (v) =>
-                                          (v == null || v.trim().isEmpty)
-                                          ? 'أدخل الاسم الأول'
-                                          : null,
+                          Form(
+                            key: _formKey,
+                            child: Column(
+                              children: [
+                                _buildTextField(
+                                  controller: _emailController,
+                                  label: 'البريد الإلكتروني',
+                                  icon: Icons.email_outlined,
+                                  keyboardType: TextInputType.emailAddress,
+                                  validator: (v) {
+                                    if (v == null || v.trim().isEmpty) {
+                                      return 'أدخل البريد الإلكتروني';
+                                    }
+                                    final email = v.trim();
+                                    final valid = RegExp(
+                                      r'^[\w\.\-+]+@[\w\-]+(\.[\w\-]+)+$',
+                                    ).hasMatch(email);
+                                    return valid
+                                        ? null
+                                        : 'صيغة البريد الإلكتروني غير صحيحة';
+                                  },
+                                ),
+                                const SizedBox(height: AppSpacing.md),
+                                _buildTextField(
+                                  controller: _passwordController,
+                                  label: 'كلمة المرور',
+                                  icon: Icons.lock_outline,
+                                  obscure: !_obscurePassword,
+                                  suffix: IconButton(
+                                    onPressed: () => setState(
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
                                     ),
-                                    const SizedBox(height: AppSpacing.md),
-                                    _buildTextField(
-                                      controller: _lastNameController,
-                                      label: 'الاسم الأخير',
-                                      icon: Icons.person_outline,
-                                      validator: (v) =>
-                                          (v == null || v.trim().isEmpty)
-                                          ? 'أدخل الاسم الأخير'
-                                          : null,
+                                    icon: Icon(
+                                      _obscurePassword
+                                          ? Icons.visibility_off
+                                          : Icons.visibility,
+                                      color: AppColors.textMuted,
                                     ),
-                                    const SizedBox(height: AppSpacing.md),
-                                  ],
-                                  _buildTextField(
-                                    controller: _emailController,
-                                    label: 'البريد الإلكتروني',
-                                    icon: Icons.email_outlined,
-                                    keyboardType: TextInputType.emailAddress,
-                                    validator: (v) {
-                                      if (v == null || v.trim().isEmpty) {
-                                        return 'أدخل البريد الإلكتروني';
-                                      }
-                                      final email = v.trim();
-                                      final valid = RegExp(
-                                        r'^[\w\.\-+]+@[\w\-]+(\.[\w\-]+)+$',
-                                      ).hasMatch(email);
-                                      return valid
-                                          ? null
-                                          : 'صيغة البريد الإلكتروني غير صحيحة';
-                                    },
                                   ),
-                                  const SizedBox(height: AppSpacing.md),
-                                  _buildTextField(
-                                    controller: _passwordController,
-                                    label: 'كلمة المرور',
-                                    icon: Icons.lock_outline,
-                                    obscure: !_obscurePassword,
-                                    suffix: IconButton(
-                                      onPressed: () => setState(
-                                        () => _obscurePassword =
-                                            !_obscurePassword,
-                                      ),
-                                      icon: Icon(
-                                        _obscurePassword
-                                            ? Icons.visibility_off
-                                            : Icons.visibility,
-                                        color: AppColors.textMuted,
-                                      ),
-                                    ),
-                                    validator: (v) =>
-                                        (v == null || v.length < 6)
-                                        ? 'كلمة المرور 6 أحرف على الأقل'
-                                        : null,
-                                  ),
-                                  if (_isRegisterMode) ...[
-                                    const SizedBox(height: AppSpacing.md),
-                                    _buildTextField(
-                                      controller: _phoneController,
-                                      label: 'رقم الهاتف (اختياري)',
-                                      icon: Icons.phone_outlined,
-                                      keyboardType: TextInputType.phone,
-                                    ),
-                                  ],
-                                ],
-                              ),
+                                  validator: (v) => (v == null || v.length < 6)
+                                      ? 'كلمة المرور 6 أحرف على الأقل'
+                                      : null,
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: AppSpacing.xl),
 
                           // Submit button
                           _buildSubmitButton(),
-                          const SizedBox(height: AppSpacing.xxl),
+                          const SizedBox(height: AppSpacing.md),
+
+                          // Register link
+                          TextButton(
+                            onPressed: _isLoading ? null : _goToRegister,
+                            child: Text(
+                              'ليس لديك حساب؟ أنشئ حسابًا جديدًا',
+                              style: AppTextStyles.bodyMedium?.copyWith(
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xl),
 
                           // Terms
                           Container(
@@ -639,9 +545,8 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  /// Primary submit button (login / register).
+  /// Primary submit button (login).
   Widget _buildSubmitButton() {
-    final isRegister = _isRegisterMode;
     return SizedBox(
       width: double.infinity,
       height: AppSpacing.buttonHeightLg,
@@ -656,9 +561,9 @@ class _LoginScreenState extends State<LoginScreen>
                   color: AppColors.textOnPrimary,
                 ),
               )
-            : Icon(isRegister ? Icons.person_add_alt_1 : Icons.login),
+            : const Icon(Icons.login),
         label: Text(
-          isRegister ? 'إنشاء حساب' : 'تسجيل الدخول',
+          'تسجيل الدخول',
           style: AppTextStyles.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
         ),
         style: FilledButton.styleFrom(

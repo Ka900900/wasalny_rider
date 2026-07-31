@@ -1,118 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-class AppColors {
-  AppColors._();
-
-  // Primary Background — Pure Black
-  static const Color primaryBg = Color(0xFF000000);
-
-  // Secondary Background
-  static const Color secondaryBg = Color(0xFF0A0A0A);
-
-  // Surface
-  static const Color surface = Color(0xFF111111);
-
-  // Cards
-  static const Color card = Color(0xFF1A1A1A);
-  static const Color cardElevated = Color(0xFF222222);
-
-  // Text — White per brand identity
-  static const Color textPrimary = Color(0xFFFFFFFF);
-  static const Color textSecondary = Color(0xFFFFFFFF);
-  static const Color textMuted = Color(0xFFE0E0E0);
-
-  // Primary Accent — Neon Green (#39FF14)
-  static const Color primary = Color(0xFF39FF14);
-  static const Color primaryDark = Color(0xFF2ECC00);
-  static const Color primaryLight = Color(0xFF5EFF40);
-  static const Color primaryFaded = Color(0x3339FF14);
-  static const Color primaryContainer = Color(0xFF0D2400);
-
-  // Online Status
-  static const Color online = Color(0xFF39FF14);
-
-  // Borders
-  static const Color border = Color(0xFF303030);
-  static const Color borderLight = Color(0xFF3A3A3A);
-
-  // Semantic
-  static const Color success = Color(0xFF39FF14);
-  static const Color successContainer = Color(0xFF0D2400);
-  static const Color error = Color(0xFFFF4D4F);
-  static const Color errorContainer = Color(0xFF2A0F0F);
-  static const Color warning = Color(0xFFFFC107);
-  static const Color warningContainer = Color(0xFF2A2008);
-  static const Color info = Color(0xFF38BDF8);
-  static const Color infoContainer = Color(0xFF0F1F2A);
-
-  // Overlays
-  static const Color scrim = Color(0xB3000000);
-  static const Color overlayLight = Color(0x14FFFFFF);
-  static const Color overlayMedium = Color(0x26FFFFFF);
-  static const Color shimmerBase = Color(0xFF242424);
-  static const Color shimmerHighlight = Color(0xFF2A2A2A);
-
-  // Legacy aliases for compatibility
-  static const Color neonGreen = primary;
-  static const Color darkBg = primaryBg;
-  static const Color bg = primaryBg;
-  static const Color surfaceDark = surface;
-  static const Color surfaceElevated = cardElevated;
-  static const Color glassBg = Color(0x14FFFFFF);
-  static const Color glassBorder = border;
-  static const Color textOnPrimary = Color(0xFF000000);
-
-  static const LinearGradient primaryGradient = LinearGradient(
-    colors: [primaryLight, primaryDark],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  static const LinearGradient surfaceGradient = LinearGradient(
-    colors: [surface, primaryBg],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-  );
-
-  static const LinearGradient overlayGradient = LinearGradient(
-    colors: [Colors.transparent, Color(0xE60D0D0D)],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-  );
-
-  static List<BoxShadow> shadowSm = [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: 0.20),
-      blurRadius: 10,
-      offset: const Offset(0, 4),
-    ),
-  ];
-
-  static List<BoxShadow> shadowMd = [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: 0.28),
-      blurRadius: 18,
-      offset: const Offset(0, 8),
-    ),
-  ];
-
-  static List<BoxShadow> shadowLg = [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: 0.36),
-      blurRadius: 28,
-      offset: const Offset(0, 14),
-    ),
-  ];
-
-  static List<BoxShadow> shadowPrimary = [
-    BoxShadow(
-      color: primaryDark.withValues(alpha: 0.35),
-      blurRadius: 18,
-      offset: const Offset(0, 8),
-    ),
-  ];
-}
+import 'app_colors.dart';
+export 'app_colors.dart';
 
 class AppSpacing {
   AppSpacing._();
@@ -150,14 +40,14 @@ class AppSpacing {
 class AppTextStyles {
   AppTextStyles._();
 
-  static TextStyle? _poppins({
+  static TextStyle? _cairo({
     double? fontSize,
     FontWeight? fontWeight,
     Color? color,
     double? height,
     double? letterSpacing,
   }) {
-    return GoogleFonts.poppins(
+    return GoogleFonts.cairo(
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
@@ -166,105 +56,105 @@ class AppTextStyles {
     );
   }
 
-  static TextStyle? get displayLarge => _poppins(
+  static TextStyle? get displayLarge => _cairo(
     fontSize: 32,
     fontWeight: FontWeight.w700,
     color: AppColors.textPrimary,
     height: 1.15,
   );
 
-  static TextStyle? get displayMedium => _poppins(
+  static TextStyle? get displayMedium => _cairo(
     fontSize: 28,
     fontWeight: FontWeight.w700,
     color: AppColors.textPrimary,
     height: 1.2,
   );
 
-  static TextStyle? get displaySmall => _poppins(
+  static TextStyle? get displaySmall => _cairo(
     fontSize: 24,
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
     height: 1.25,
   );
 
-  static TextStyle? get headlineLarge => _poppins(
+  static TextStyle? get headlineLarge => _cairo(
     fontSize: 22,
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
     height: 1.3,
   );
 
-  static TextStyle? get headlineMedium => _poppins(
+  static TextStyle? get headlineMedium => _cairo(
     fontSize: 20,
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
     height: 1.35,
   );
 
-  static TextStyle? get headlineSmall => _poppins(
+  static TextStyle? get headlineSmall => _cairo(
     fontSize: 18,
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
     height: 1.35,
   );
 
-  static TextStyle? get titleLarge => _poppins(
+  static TextStyle? get titleLarge => _cairo(
     fontSize: 18,
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
     height: 1.35,
   );
 
-  static TextStyle? get titleMedium => _poppins(
+  static TextStyle? get titleMedium => _cairo(
     fontSize: 16,
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
     height: 1.4,
   );
 
-  static TextStyle? get titleSmall => _poppins(
+  static TextStyle? get titleSmall => _cairo(
     fontSize: 14,
     fontWeight: FontWeight.w600,
     color: AppColors.textPrimary,
     height: 1.45,
   );
 
-  static TextStyle? get bodyLarge => _poppins(
+  static TextStyle? get bodyLarge => _cairo(
     fontSize: 16,
     fontWeight: FontWeight.w400,
     color: AppColors.textPrimary,
     height: 1.5,
   );
 
-  static TextStyle? get bodyMedium => _poppins(
+  static TextStyle? get bodyMedium => _cairo(
     fontSize: 14,
     fontWeight: FontWeight.w400,
     color: AppColors.textSecondary,
     height: 1.5,
   );
 
-  static TextStyle? get bodySmall => _poppins(
+  static TextStyle? get bodySmall => _cairo(
     fontSize: 12,
     fontWeight: FontWeight.w400,
     color: AppColors.textMuted,
     height: 1.5,
   );
 
-  static TextStyle? get labelLarge => _poppins(
+  static TextStyle? get labelLarge => _cairo(
     fontSize: 14,
     fontWeight: FontWeight.w500,
     color: AppColors.textPrimary,
     height: 1.3,
   );
 
-  static TextStyle? get labelMedium => _poppins(
+  static TextStyle? get labelMedium => _cairo(
     fontSize: 12,
     fontWeight: FontWeight.w500,
     color: AppColors.textSecondary,
     height: 1.3,
   );
 
-  static TextStyle? get labelSmall => _poppins(
+  static TextStyle? get labelSmall => _cairo(
     fontSize: 10,
     fontWeight: FontWeight.w500,
     color: AppColors.textMuted,
@@ -293,22 +183,24 @@ class AppTheme {
         outline: AppColors.border,
       ),
       scaffoldBackgroundColor: AppColors.primaryBg,
-      textTheme: TextTheme(
-        displayLarge: AppTextStyles.displayLarge,
-        displayMedium: AppTextStyles.displayMedium,
-        displaySmall: AppTextStyles.displaySmall,
-        headlineLarge: AppTextStyles.headlineLarge,
-        headlineMedium: AppTextStyles.headlineMedium,
-        headlineSmall: AppTextStyles.headlineSmall,
-        titleLarge: AppTextStyles.titleLarge,
-        titleMedium: AppTextStyles.titleMedium,
-        titleSmall: AppTextStyles.titleSmall,
-        bodyLarge: AppTextStyles.bodyLarge,
-        bodyMedium: AppTextStyles.bodyMedium,
-        bodySmall: AppTextStyles.bodySmall,
-        labelLarge: AppTextStyles.labelLarge,
-        labelMedium: AppTextStyles.labelMedium,
-        labelSmall: AppTextStyles.labelSmall,
+      textTheme: GoogleFonts.cairoTextTheme(
+        TextTheme(
+          displayLarge: AppTextStyles.displayLarge,
+          displayMedium: AppTextStyles.displayMedium,
+          displaySmall: AppTextStyles.displaySmall,
+          headlineLarge: AppTextStyles.headlineLarge,
+          headlineMedium: AppTextStyles.headlineMedium,
+          headlineSmall: AppTextStyles.headlineSmall,
+          titleLarge: AppTextStyles.titleLarge,
+          titleMedium: AppTextStyles.titleMedium,
+          titleSmall: AppTextStyles.titleSmall,
+          bodyLarge: AppTextStyles.bodyLarge,
+          bodyMedium: AppTextStyles.bodyMedium,
+          bodySmall: AppTextStyles.bodySmall,
+          labelLarge: AppTextStyles.labelLarge,
+          labelMedium: AppTextStyles.labelMedium,
+          labelSmall: AppTextStyles.labelSmall,
+        ),
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.surface,

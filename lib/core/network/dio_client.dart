@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:logging/logging.dart' as l;
 
+import 'package:wasalny_rider/core/constants/api_constants.dart';
 import 'package:wasalny_rider/core/network/auth_interceptor.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 
@@ -42,10 +43,7 @@ class DioClient {
   ///
   /// Safe to call multiple times — subsequent calls are no-ops once
   /// the client is initialised (unless [force] is `true`).
-  void init({
-    String baseUrl = 'https://wasalny-backend-production.up.railway.app/api/v1',
-    bool force = false,
-  }) {
+  void init({String baseUrl = ApiConstants.baseUrl, bool force = false}) {
     if (_initialised && !force) return;
 
     dio = Dio(
