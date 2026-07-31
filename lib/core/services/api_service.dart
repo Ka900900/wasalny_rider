@@ -171,15 +171,14 @@ class ApiService {
 
   /// Register a new rider with email + password via `POST /auth/register`.
   ///
-  /// Sends `email`, `password`, `firstName`, `lastName` and an optional
-  /// `phoneNumber`. The backend returns a JWT on success, which is saved
-  /// automatically (the rider is signed in right away).
+  /// Sends `email`, `password`, `firstName` and `lastName`. The backend
+  /// returns a JWT on success, which is saved automatically (the rider is
+  /// signed in right away).
   Future<Map<String, dynamic>> registerWithEmailPassword({
     required String email,
     required String password,
     required String firstName,
     required String lastName,
-    String? phoneNumber,
   }) async {
     if (!backendEnabled) return <String, dynamic>{'success': true};
     final response = await _dio.post(
@@ -189,8 +188,6 @@ class ApiService {
         'password': password,
         'firstName': firstName.trim(),
         'lastName': lastName.trim(),
-        if (phoneNumber != null && phoneNumber.trim().isNotEmpty)
-          'phoneNumber': phoneNumber.trim(),
       },
     );
     final result = response.data as Map<String, dynamic>;
@@ -225,8 +222,8 @@ class ApiService {
   ///
   /// The backend returns profile data at the top level of the response
   /// (no `riderProfile` wrapper – the rider has no vehicle).
-  /// Expected fields: `id`, `firstName`, `lastName`, `phoneNumber`,
-  /// `avatarUrl`, `role` = `'RIDER'`.
+  /// Expected fields: `id`, `firstName`, `lastName`, `avatarUrl`,
+  /// `role` = `'RIDER'`.
   Future<Map<String, dynamic>> getProfile() async {
     if (!backendEnabled) return <String, dynamic>{};
     await _ensureTokenLoaded();
@@ -248,22 +245,6 @@ class ApiService {
         if (lastName != null) 'lastName': lastName,
         if (avatarUrl != null) 'avatarUrl': avatarUrl,
       },
-    );
-    return response.data as Map<String, dynamic>;
-  }
-
-  /// Update the rider's phone number on the backend.
-  ///
-  /// Used when the Google account has no real phone number (e.g. the backend
-  /// stored a `firebase:` placeholder) and the rider must provide a real one.
-  Future<Map<String, dynamic>> updatePhoneNumber({
-    required String phoneNumber,
-  }) async {
-    if (!backendEnabled) return <String, dynamic>{'success': true};
-    await _ensureTokenLoaded();
-    final response = await _dio.post(
-      '/auth/update-phone',
-      data: {'phoneNumber': phoneNumber},
     );
     return response.data as Map<String, dynamic>;
   }

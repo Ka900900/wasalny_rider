@@ -7,9 +7,9 @@ import 'package:wasalny_rider/core/theme/app_theme.dart';
 
 /// Passenger registration screen (email + password).
 ///
-/// Sends `email`, `password`, `firstName`, `lastName` and optional
-/// `phoneNumber` to `POST /auth/register`. The backend returns a JWT on
-/// success (auto-login), so the rider is taken straight to the home screen.
+/// Sends `email`, `password`, `firstName` and `lastName` to
+/// `POST /auth/register`. The backend returns a JWT on success (auto-login),
+/// so the rider is taken straight to the home screen.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -26,7 +26,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _phoneController = TextEditingController();
 
   @override
   void dispose() {
@@ -34,7 +33,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -49,7 +47,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text,
         firstName: _firstNameController.text,
         lastName: _lastNameController.text,
-        phoneNumber: _phoneController.text,
       );
       if (!mounted) return;
       // Registration auto-logs-in (backend returns a JWT) → go straight home.
@@ -163,13 +160,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       : null,
                 ),
                 const SizedBox(height: AppSpacing.md),
-                _buildTextField(
-                  controller: _phoneController,
-                  label: 'رقم الهاتف (اختياري)',
-                  icon: Icons.phone_outlined,
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: AppSpacing.xl),
 
                 SizedBox(
                   width: double.infinity,

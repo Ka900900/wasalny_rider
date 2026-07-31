@@ -8,6 +8,7 @@ import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 import 'package:wasalny_rider/features/home/finding_driver_dialog.dart';
 import 'package:wasalny_rider/features/home/ride_options_sheet.dart';
+import 'package:wasalny_rider/features/trip/active_trip_screen.dart';
 
 /// Main rider home screen with an interactive map and a "Request Ride" button.
 class RiderHomeScreen extends StatefulWidget {
@@ -22,6 +23,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   bool _mapReady = false;
   bool _locationGranted = false;
   Position? _currentPosition;
+  StreamSubscription<Position>? _positionStream;
+  osm.GeoPoint? _riderMarkerPoint;
 
   @override
   void initState() {
@@ -37,6 +40,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
 
   @override
   void dispose() {
+    _positionStream?.cancel();
     mapController.dispose();
     super.dispose();
   }
@@ -63,6 +67,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
 
     _locationGranted = true;
     await _getCurrentLocation();
+    _startLocationUpdates();
   }
 
   Future<void> _getCurrentLocation() async {
@@ -72,13 +77,14 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
           accuracy: LocationAccuracy.high,
         ),
       );
-      _currentPosition = position;
       logInfo(
         'RiderHomeScreen',
         '📍 Current location: ${position.latitude}, ${position.longitude}',
       );
 
-      // Move the map to the current location
+      await _updateRiderLocation(position);
+
+      // Move the map to the current location on first fix
       if (_mapReady) {
         await mapController.moveTo(
           osm.GeoPoint(
@@ -86,20 +92,63 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
             longitude: position.longitude,
           ),
         );
-        // Add a marker for the rider's location
-        await mapController.addMarker(
-          osm.GeoPoint(
-            latitude: position.latitude,
-            longitude: position.longitude,
-          ),
-          markerIcon: const osm.MarkerIcon(
-            icon: Icon(Icons.my_location, color: AppColors.primary, size: 32),
-          ),
-        );
       }
     } catch (e) {
       logError('RiderHomeScreen', 'Failed to get location: $e', e);
     }
+  }
+
+  /// Adds / moves the rider marker on the map for the given [position].
+  Future<void> _updateRiderLocation(Position position) async {
+    if (!mounted) return;
+    _currentPosition = position;
+    final point = osm.GeoPoint(
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
+    if (!_mapReady) return;
+    try {
+      if (_riderMarkerPoint == null) {
+        await mapController.addMarker(
+          point,
+          markerIcon: const osm.MarkerIcon(
+            icon: Icon(Icons.my_location, color: AppColors.primary, size: 32),
+          ),
+        );
+      } else {
+        await mapController.changeLocationMarker(
+          oldLocation: _riderMarkerPoint!,
+          newLocation: point,
+        );
+      }
+      _riderMarkerPoint = point;
+    } catch (e) {
+      logError('RiderHomeScreen', 'Failed to update rider marker: $e', e);
+    }
+  }
+
+  /// Subscribes to live position updates and keeps the rider marker in sync.
+  void _startLocationUpdates() {
+    _positionStream?.cancel();
+    _positionStream =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5, // meters
+          ),
+        ).listen((position) {
+          if (mounted) _updateRiderLocation(position);
+        });
+  }
+
+  /// Re-centers the map on the rider's current position.
+  Future<void> _recenter() async {
+    final position = _currentPosition;
+    if (position == null || !_mapReady) return;
+    await mapController.moveTo(
+      osm.GeoPoint(latitude: position.latitude, longitude: position.longitude),
+      animate: true,
+    );
   }
 
   void _onMapReady(bool isReady) {
@@ -167,6 +216,27 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
 
   Future<void> _requestRide() => _openRideOptions();
 
+  /// Compact button that re-centers the map on the rider's current position.
+  Widget _recenterButton() {
+    return SizedBox(
+      width: AppSpacing.buttonHeightLg,
+      height: AppSpacing.buttonHeightLg,
+      child: ElevatedButton(
+        onPressed: _recenter,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.cardBg,
+          foregroundColor: AppColors.primaryGreen,
+          padding: EdgeInsets.zero,
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+          ),
+        ),
+        child: const Icon(Icons.my_location_rounded),
+      ),
+    );
+  }
+
   /// Opens the ride-options bottom sheet, then the "searching for driver"
   /// radar dialog, and finally navigates to the active trip when a driver is
   /// found.
@@ -181,11 +251,18 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       return;
     }
 
+    final current = _currentPosition!;
     final result = await showModalBottomSheet<RideSelection>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const RideOptionsSheet(),
+      builder: (_) => RideOptionsSheet(
+        pickupLat: current.latitude,
+        pickupLng: current.longitude,
+        pickupAddress:
+            '${current.latitude.toStringAsFixed(4)}, '
+            '${current.longitude.toStringAsFixed(4)}',
+      ),
     );
     if (result == null || !mounted) return;
 
@@ -197,7 +274,21 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     );
 
     if (found == true && mounted) {
-      Navigator.pushNamed(context, '/active-trip');
+      Navigator.pushNamed(
+        context,
+        '/active-trip',
+        arguments: ActiveTripArgs(
+          pickupLat: result.pickupLat,
+          pickupLng: result.pickupLng,
+          pickupAddress: result.pickupAddress,
+          dropoffLat: result.dropoffLat,
+          dropoffLng: result.dropoffLng,
+          dropoffAddress: result.dropoffAddress,
+          rideType: result.type,
+          payment: result.payment,
+          fare: result.fare,
+        ),
+      );
     }
   }
 
@@ -350,32 +441,39 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                       ),
                     ),
 
-                  // Request Ride button
-                  SizedBox(
-                    width: double.infinity,
-                    height: AppSpacing.buttonHeightLg,
-                    child: ElevatedButton.icon(
-                      onPressed: _requestRide,
-                      icon: const Icon(Icons.taxi_alert_rounded),
-                      label: Text(
-                        'اطلب رحلة',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(color: AppColors.textOnPrimary),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: AppColors.textOnPrimary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppSpacing.radiusLg,
+                  // Request Ride button + recenter
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: AppSpacing.buttonHeightLg,
+                          child: ElevatedButton.icon(
+                            onPressed: _requestRide,
+                            icon: const Icon(Icons.taxi_alert_rounded),
+                            label: Text(
+                              'اطلب رحلة',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(color: AppColors.textOnPrimary),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: AppColors.textOnPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppSpacing.radiusLg,
+                                ),
+                              ),
+                              elevation: 4,
+                              shadowColor: AppColors.primaryDark.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
                           ),
                         ),
-                        elevation: 4,
-                        shadowColor: AppColors.primaryDark.withValues(
-                          alpha: 0.5,
-                        ),
                       ),
-                    ),
+                      const SizedBox(width: AppSpacing.md),
+                      _recenterButton(),
+                    ],
                   ),
                 ],
               ),

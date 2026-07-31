@@ -50,8 +50,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String get _email => _profile?['email'] as String? ?? '';
-  String get _phone =>
-      _profile?['phoneNumber'] as String? ?? 'لم تتم إضافة رقم هاتف';
 
   Future<void> _logout() async {
     ApiService.instance.clearToken();
@@ -105,8 +103,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: AppSpacing.xxs),
                         if (_email.isNotEmpty)
                           Text(_email, style: AppTextStyles.bodySmall),
-                        if (_phone.isNotEmpty)
-                          Text(_phone, style: AppTextStyles.bodySmall),
                       ],
                     ),
                   ),

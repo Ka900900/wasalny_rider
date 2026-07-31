@@ -26,8 +26,9 @@ Future<void> main() async {
     // the native resources (google-services.json / GoogleService-Info.plist).
     await Firebase.initializeApp();
   } catch (e, stack) {
+    // Never let a Firebase failure stop the app: log it and continue so the
+    // splash screen and email/password login can still work.
     logError('main', 'Firebase initialization failed', e, stack);
-    rethrow;
   }
   runApp(const MyApp());
 }
@@ -60,7 +61,9 @@ class MyApp extends StatelessWidget {
       case '/register':
         return RouteTransitions.slideUp(const RegisterScreen());
       case '/active-trip':
-        return RouteTransitions.slideHorizontal(const ActiveTripScreen());
+        return RouteTransitions.slideHorizontal(
+          ActiveTripScreen(args: settings.arguments as ActiveTripArgs?),
+        );
       case '/rating':
         return RouteTransitions.slideUp(const TripRatingScreen());
       case '/history':

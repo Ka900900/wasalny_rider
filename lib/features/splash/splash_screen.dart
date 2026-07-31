@@ -29,6 +29,10 @@ class _SplashScreenState extends State<SplashScreen>
 
   late final Future<void> _initializationFuture;
 
+  /// Guards against navigating more than once (e.g. when the FutureBuilder
+  /// rebuilds after initialization completes).
+  bool _hasNavigated = false;
+
   @override
   void initState() {
     super.initState();
@@ -115,11 +119,23 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _initFirebase() async {
     try {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          logWarning('SplashScreen', 'Firebase init timeout — continuing');
+          // Return an already-initialized app (created in main()) so the
+          // future resolves and the splash screen never hangs.
+          return Firebase.apps.isNotEmpty
+              ? Firebase.apps.first
+              : Firebase.app();
+        },
+      );
     } on FirebaseException catch (e) {
       if (e.code != 'duplicate-app') {
-        rethrow;
+        logError('SplashScreen', 'Firebase error: $e', e);
       }
+    } catch (e) {
+      logError('SplashScreen', 'Firebase init failed: $e', e);
     }
   }
 
@@ -225,9 +241,11 @@ class _SplashScreenState extends State<SplashScreen>
     return FutureBuilder(
       future: _initializationFuture,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.done) {
-          // Initialization complete — trigger navigation
+        if (snapshot.connectionState == ConnectionState.done &&
+            !_hasNavigated) {
+          // Initialization complete — trigger navigation (exactly once)
           // Use addPostFrameCallback to avoid building during build
+          _hasNavigated = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _navigateBasedOnAuth();
           });
@@ -292,6 +310,11 @@ class _SplashScreenState extends State<SplashScreen>
                             child: Image.asset(
                               'assets/images/app_logo.png',
                               fit: BoxFit.contain,
+                              errorBuilder: (_, _, _) => const Icon(
+                                Icons.local_taxi,
+                                size: 80,
+                                color: AppColors.primary,
+                              ),
                             ),
                           ),
                         );

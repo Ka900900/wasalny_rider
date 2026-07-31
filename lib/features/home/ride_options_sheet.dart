@@ -1,19 +1,58 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 
 /// Selection returned by [RideOptionsSheet].
-typedef RideSelection = ({String type, String payment, double fare});
+typedef RideSelection = ({
+  String type,
+  String payment,
+  double fare,
+  double pickupLat,
+  double pickupLng,
+  String pickupAddress,
+  double dropoffLat,
+  double dropoffLng,
+  String dropoffAddress,
+});
 
-/// Bottom sheet where the passenger picks a ride type (Economy / VIP),
-/// a payment method (Cash / Card) and confirms the request.
+/// A popular destination the passenger can pick from.
+class _PlaceOption {
+  final String name;
+  final double lat;
+  final double lng;
+
+  const _PlaceOption(this.name, this.lat, this.lng);
+}
+
+const List<_PlaceOption> _popularPlaces = [
+  _PlaceOption('مطار القاهرة الدولي', 30.1219, 31.4056),
+  _PlaceOption('وسط البلد (ميدان التحرير)', 30.0444, 31.2357),
+  _PlaceOption('مدينة نصر', 30.0561, 31.3209),
+  _PlaceOption('التجمع الخامس', 30.0082, 31.4408),
+  _PlaceOption('مدينة 6 أكتوبر', 29.9686, 30.9470),
+  _PlaceOption('الشيخ زايد', 30.0459, 31.0040),
+  _PlaceOption('المعادي', 29.9598, 31.2497),
+  _PlaceOption('مصر الجديدة', 30.1007, 31.3408),
+];
+
+/// Bottom sheet where the passenger picks a destination, a ride type
+/// (Economy / VIP), a payment method (Cash / Card) and confirms the request.
 ///
 /// Pops with a [RideSelection] record on confirm, or `null` when dismissed.
 class RideOptionsSheet extends StatefulWidget {
-  const RideOptionsSheet({super.key, this.destination});
+  const RideOptionsSheet({
+    super.key,
+    required this.pickupLat,
+    required this.pickupLng,
+    required this.pickupAddress,
+  });
 
-  /// Destination label shown at the top of the sheet.
-  final String? destination;
+  /// Rider's current location (used for the fare estimate).
+  final double pickupLat;
+  final double pickupLng;
+  final String pickupAddress;
 
   @override
   State<RideOptionsSheet> createState() => _RideOptionsSheetState();
@@ -22,13 +61,63 @@ class RideOptionsSheet extends StatefulWidget {
 class _RideOptionsSheetState extends State<RideOptionsSheet> {
   String _selectedType = 'economy'; // 'economy' | 'vip'
   String _selectedPayment = 'cash'; // 'cash' | 'card'
+  _PlaceOption? _destination;
 
-  double get _fare => _selectedType == 'vip' ? 75.0 : 40.0;
+  static double _deg2rad(double deg) => deg * (pi / 180);
+
+  /// Approximate distance (km) between pickup and the selected destination
+  /// using the Haversine formula. Falls back to 4 km when no destination is
+  /// selected yet.
+  double get _distanceKm {
+    final dest = _destination;
+    if (dest == null) return 4.0;
+    const earthRadius = 6371.0;
+    final dLat = _deg2rad(dest.lat - widget.pickupLat);
+    final dLng = _deg2rad(dest.lng - widget.pickupLng);
+    final a =
+        sin(dLat / 2) * sin(dLat / 2) +
+        cos(_deg2rad(widget.pickupLat)) *
+            cos(_deg2rad(dest.lat)) *
+            sin(dLng / 2) *
+            sin(dLng / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    final km = earthRadius * c;
+    return km < 1.0 ? 1.0 : km;
+  }
+
+  /// Dynamic fare estimate for a given ride type:
+  /// economy = 15 EGP base + 5/km, VIP = 30 + 8/km.
+  double _fareForType(String type) {
+    final km = _distanceKm;
+    return type == 'vip'
+        ? (30 + 8 * km).roundToDouble()
+        : (15 + 5 * km).roundToDouble();
+  }
+
+  double get _fare => _fareForType(_selectedType);
 
   void _confirm() {
-    Navigator.of(
-      context,
-    ).pop((type: _selectedType, payment: _selectedPayment, fare: _fare));
+    final dest = _destination;
+    if (dest == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('يرجى اختيار الوجهة أولاً'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).pop((
+      type: _selectedType,
+      payment: _selectedPayment,
+      fare: _fare,
+      pickupLat: widget.pickupLat,
+      pickupLng: widget.pickupLng,
+      pickupAddress: widget.pickupAddress,
+      dropoffLat: dest.lat,
+      dropoffLng: dest.lng,
+      dropoffAddress: dest.name,
+    ));
   }
 
   @override
@@ -70,8 +159,20 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
             ),
             const SizedBox(height: AppSpacing.lg),
 
-            // Destination
-            _buildDestinationCard(),
+            // Pickup (current location)
+            _buildPickupCard(),
+            const SizedBox(height: AppSpacing.xl),
+
+            // Destination selector
+            Text('اختر الوجهة', style: AppTextStyles.titleMedium),
+            const SizedBox(height: AppSpacing.md),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final place in _popularPlaces) _buildPlaceChip(place),
+              ],
+            ),
             const SizedBox(height: AppSpacing.xl),
 
             // Ride type cards
@@ -83,7 +184,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'وصلني توفير',
                     desc: 'حتى 4 ركاب',
                     icon: Icons.directions_car_rounded,
-                    fare: 40,
+                    fare: _fareForType('economy'),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -93,7 +194,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'وصلني VIP',
                     desc: 'خدمة مميزة',
                     icon: Icons.stars_rounded,
-                    fare: 75,
+                    fare: _fareForType('vip'),
                   ),
                 ),
               ],
@@ -166,7 +267,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
     );
   }
 
-  Widget _buildDestinationCard() {
+  Widget _buildPickupCard() {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -175,16 +276,58 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       ),
       child: Row(
         children: [
-          Icon(Icons.location_on_rounded, color: AppColors.primaryGreen),
+          Icon(Icons.trip_origin_rounded, color: AppColors.primaryGreen),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Text(
-              widget.destination ?? 'إلى أين تريد الذهاب؟',
+              'موقع الانطلاق: ${widget.pickupAddress}',
               style: AppTextStyles.bodyMedium,
               overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPlaceChip(_PlaceOption place) {
+    final selected = _destination?.name == place.name;
+    return InkWell(
+      onTap: () => setState(() => _destination = place),
+      borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primaryContainer : AppColors.cardBg,
+          borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+          border: Border.all(
+            color: selected ? AppColors.primaryGreen : AppColors.border,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.place_rounded,
+              size: AppSpacing.iconSm,
+              color: selected ? AppColors.primaryGreen : AppColors.textMuted,
+            ),
+            const SizedBox(width: AppSpacing.xxs),
+            Text(
+              place.name,
+              style: AppTextStyles.labelSmall?.copyWith(
+                color: selected
+                    ? AppColors.primaryGreen
+                    : AppColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

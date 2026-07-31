@@ -71,7 +71,7 @@ class _LoginScreenState extends State<LoginScreen>
       await AuthService.instance.signInWithGoogle();
       if (!mounted) return;
 
-      // 2. Complete the shared post-auth flow (phone check → home)
+      // 2. Complete the shared post-auth flow → home
       await _completePostAuth();
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
@@ -117,25 +117,10 @@ class _LoginScreenState extends State<LoginScreen>
     Navigator.pushNamed(context, '/register');
   }
 
-  /// Shared post-auth steps: ensure the backend profile has a real phone
-  /// number (prompt if missing), then navigate straight to `/home`.
+  /// Shared post-auth step: the rider has no vehicle/verification flow, so we
+  /// navigate straight to the home screen.
   Future<void> _completePostAuth() async {
-    final profileData = await ApiService.instance.getProfile();
-    final backendPhone = profileData['phoneNumber'] as String?;
-    final needsPhoneEntry =
-        backendPhone == null ||
-        backendPhone.isEmpty ||
-        backendPhone.startsWith('firebase:');
-
-    if (mounted && needsPhoneEntry) {
-      final realPhone = await _showPhoneEntryDialog();
-      if (realPhone != null && realPhone.isNotEmpty && mounted) {
-        await ApiService.instance.updatePhoneNumber(phoneNumber: realPhone);
-      }
-    }
-
     if (mounted) {
-      // The rider has no vehicle/verification flow — go straight home
       Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
     }
   }
@@ -169,67 +154,6 @@ class _LoginScreenState extends State<LoginScreen>
       }
     }
     return error.toString();
-  }
-
-  /// Shows a dialog asking the user to enter their real phone number.
-  /// Returns the phone number string if confirmed, or null if cancelled.
-  Future<String?> _showPhoneEntryDialog() async {
-    final phoneController = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('رقم الهاتف'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'يجب إدخال رقم هاتف حقيقي لإتمام التسجيل.',
-                style: TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: phoneController,
-                keyboardType: TextInputType.phone,
-                textDirection: TextDirection.ltr,
-                decoration: const InputDecoration(
-                  hintText: '+20 1XX XXX XXXX',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.phone),
-                ),
-                autofocus: true,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(null),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final phone = phoneController.text.trim();
-                if (phone.isEmpty) return;
-                // Basic validation: must be a valid phone (9-15 digits)
-                final clean = phone.replaceAll(RegExp(r'[\s\-]'), '');
-                if (!RegExp(r'^\+?\d{9,15}$').hasMatch(clean)) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('صيغة رقم الهاتف غير صحيحة'),
-                      backgroundColor: AppColors.error,
-                    ),
-                  );
-                  return;
-                }
-                Navigator.of(context).pop(phone);
-              },
-              child: const Text('تأكيد'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   void _showError(String message) {
