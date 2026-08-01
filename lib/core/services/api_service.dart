@@ -287,15 +287,33 @@ class ApiService {
   }
 
   /// Cancel a ride.
+  ///
+  /// Tries `PUT /rides/cancel/$rideId` first (matches the backend route),
+  /// then falls back to `POST /rides/cancel/$rideId` if PUT is rejected
+  /// (405 / 404 / 400 / 501).
   Future<bool> cancelRide(String rideId) async {
     if (!backendEnabled) return true;
     try {
-      await _dio.post('/rides/cancel/$rideId');
+      await _dio.put('/rides/cancel/$rideId');
       return true;
     } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 405 || status == 404 || status == 400 || status == 501) {
+        try {
+          await _dio.post('/rides/cancel/$rideId');
+          return true;
+        } on DioException catch (postError) {
+          logWarning(
+            'ApiService',
+            'cancelRide failed (POST fallback): '
+            '${postError.response?.statusCode} ${postError.response?.data}',
+          );
+          return false;
+        }
+      }
       logWarning(
         'ApiService',
-        'cancelRide failed: ${e.response?.statusCode} ${e.response?.data}',
+        'cancelRide failed: $status ${e.response?.data}',
       );
       return false;
     } catch (e) {

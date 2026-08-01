@@ -8,7 +8,8 @@ import 'package:wasalny_rider/core/services/socket_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 
-/// Ride statuses that mean a driver has accepted the ride / is on the way.
+/// Statuses that mean a real driver was matched (case-insensitive).
+/// Backend uses ACCEPTED (uppercase); we always normalize to lowercase.
 const Set<String> _driverFoundStatuses = {
   'accepted',
   'assigned',
@@ -20,8 +21,21 @@ const Set<String> _driverFoundStatuses = {
   'ongoing',
 };
 
-/// Ride statuses that mean the ride was cancelled / rejected server-side.
-const Set<String> _cancelledStatuses = {'cancelled', 'canceled', 'rejected'};
+/// Statuses that mean keep waiting (PENDING from backend = still searching).
+const Set<String> _waitingStatuses = {
+  'pending',
+  'searching',
+  'requested',
+  'created',
+  'new',
+};
+
+/// Statuses that mean the ride was cancelled / rejected server-side.
+const Set<String> _cancelledStatuses = {
+  'cancelled',
+  'canceled',
+  'rejected',
+};
 
 /// Modal dialog shown while the app searches for a real nearby driver.
 ///
@@ -107,9 +121,14 @@ class _FindingDriverDialogState extends State<FindingDriverDialog>
 
   void _handleStatus(String status) {
     final normalized = status.trim().toLowerCase();
+    // PENDING / pending → keep waiting (do nothing).
+    if (_waitingStatuses.contains(normalized)) return;
+    // ACCEPTED / accepted → driver found.
     if (_driverFoundStatuses.contains(normalized)) {
       _finish(true);
-    } else if (_cancelledStatuses.contains(normalized)) {
+      return;
+    }
+    if (_cancelledStatuses.contains(normalized)) {
       _finish(false);
     }
   }

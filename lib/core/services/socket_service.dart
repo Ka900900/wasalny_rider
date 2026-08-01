@@ -50,32 +50,82 @@ class SocketService {
     socket!.onConnectError((data) => log('⚠️ خطأ في الاتصال بالسوكيت: $data'));
     socket!.onError((data) => log('❌ خطأ في السوكيت: $data'));
 
-    // Listen for driver location updates
-    socket!.on('driver.location', (data) {
-      if (data is Map) {
-        try {
-          final map = Map<String, dynamic>.from(data);
-          final lat = (map['lat'] as num).toDouble();
-          final lng = (map['lng'] as num).toDouble();
-          onDriverLocationUpdate?.call(lat, lng);
-        } catch (e) {
-          log('⚠️ خطأ في تحليل موقع الكابتن: $e');
-        }
-      }
-    });
+    // Driver location (backend may emit either name).
+    socket!.on('driver.location', _handleDriverLocation);
+    socket!.on('ride.driver_location', _handleDriverLocation);
 
-    // Listen for ride status changes
-    socket!.on('ride.status', (data) {
-      if (data is Map) {
-        try {
-          final map = Map<String, dynamic>.from(data);
-          final status = map['status'] as String? ?? '';
-          onRideStatusChanged?.call(status, map);
-        } catch (e) {
-          log('⚠️ خطأ في تحليل حالة الرحلة: $e');
+    // Ride status (backend may emit any of these event names).
+    socket!.on('ride.status', (data) => _handleRideEvent(data, ''));
+    socket!.on('ride.status_update', (data) => _handleRideEvent(data, ''));
+    socket!.on('ride.accepted', (data) => _handleRideEvent(data, 'accepted'));
+    socket!.on('ride.cancelled', (data) => _handleRideEvent(data, 'cancelled'));
+  }
+
+  /// Parses driver-location payloads (`lat`/`lng`, `latitude`/`longitude`,
+  /// nested `location` / `driver`) and forwards via [onDriverLocationUpdate].
+  void _handleDriverLocation(dynamic data) {
+    if (data is! Map) return;
+    try {
+      final map = Map<String, dynamic>.from(data);
+      dynamic lat = map['lat'] ?? map['latitude'];
+      dynamic lng = map['lng'] ?? map['longitude'];
+      if (lat == null || lng == null) {
+        final location = map['location'];
+        if (location is Map) {
+          lat ??= location['lat'] ?? location['latitude'];
+          lng ??= location['lng'] ?? location['longitude'];
         }
       }
-    });
+      if (lat == null || lng == null) {
+        final driver = map['driver'];
+        if (driver is Map) {
+          lat ??= driver['lat'] ?? driver['latitude'];
+          lng ??= driver['lng'] ?? driver['longitude'];
+        }
+      }
+      final latNum = lat is num ? lat.toDouble() : double.tryParse('$lat');
+      final lngNum = lng is num ? lng.toDouble() : double.tryParse('$lng');
+      if (latNum != null && lngNum != null) {
+        onDriverLocationUpdate?.call(latNum, lngNum);
+      }
+    } catch (e) {
+      log('⚠️ خطأ في تحليل موقع الكابتن: $e');
+    }
+  }
+
+  /// Routes any ride-related socket event through [onRideStatusChanged].
+  /// Uses [fallbackStatus] when the payload has no explicit status
+  /// (e.g. `ride.accepted` often only carries `{rideId, driver}`).
+  void _handleRideEvent(dynamic data, String fallbackStatus) {
+    if (data is! Map) {
+      if (fallbackStatus.isNotEmpty) {
+        onRideStatusChanged?.call(fallbackStatus, <String, dynamic>{});
+      }
+      return;
+    }
+    try {
+      final map = Map<String, dynamic>.from(data);
+      String status = fallbackStatus;
+      final direct = map['status'];
+      if (direct is String && direct.isNotEmpty) {
+        status = direct;
+      } else {
+        final ride = map['ride'];
+        if (ride is Map && ride['status'] is String) {
+          status = ride['status'] as String;
+        } else {
+          final nested = map['data'];
+          if (nested is Map && nested['status'] is String) {
+            status = nested['status'] as String;
+          }
+        }
+      }
+      if (status.isNotEmpty) {
+        onRideStatusChanged?.call(status, map);
+      }
+    } catch (e) {
+      log('⚠️ خطأ في تحليل حالة الرحلة: $e');
+    }
   }
 
   /// Request a ride (emit event to the server).

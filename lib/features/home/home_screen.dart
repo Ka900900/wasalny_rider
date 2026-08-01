@@ -583,25 +583,30 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   /// Extracts the ride id from a `POST /rides/request` response, supporting
   /// `id`, `rideId`, `data.id`, `data.rideId` and `ride.id` shapes (string or
   /// numeric ids).
+  /// Explicitly prefers `response['ride']['id']` (backend documented shape),
+  /// then falls back to other common id fields.
   String? _extractRideId(Map<String, dynamic> response) {
-    final direct = response['id'] ?? response['rideId'];
-    final directId = _asStringId(direct);
-    if (directId != null) return directId;
+    // 1) Backend shape: { message, ride: { id, status, ... } }
     final ride = response['ride'];
     if (ride is Map) {
       final id = _asStringId(ride['id']);
       if (id != null) return id;
     }
+    // 2) Top-level id / rideId
+    final direct = response['id'] ?? response['rideId'];
+    final directId = _asStringId(direct);
+    if (directId != null) return directId;
+    // 3) Nested under data
     final data = response['data'];
     if (data is Map) {
-      final nested = data['id'] ?? data['rideId'];
-      final nestedId = _asStringId(nested);
-      if (nestedId != null) return nestedId;
       final nestedRide = data['ride'];
       if (nestedRide is Map) {
         final id = _asStringId(nestedRide['id']);
         if (id != null) return id;
       }
+      final nested = data['id'] ?? data['rideId'];
+      final nestedId = _asStringId(nested);
+      if (nestedId != null) return nestedId;
     }
     return null;
   }
