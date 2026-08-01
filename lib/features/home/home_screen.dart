@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 import 'package:geolocator/geolocator.dart';
@@ -26,6 +27,15 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   Position? _currentPosition;
   StreamSubscription<Position>? _positionStream;
   osm.GeoPoint? _riderMarkerPoint;
+  Timer? _mapReadyFallbackTimer;
+  Timer? _locationPollTimer;
+
+  /// Whether the map camera should keep following the rider in real time.
+  bool _followUser = true;
+
+  /// Timestamp of the last programmatic camera move, used to ignore the
+  /// region-change events that our own follow/recenter moves trigger.
+  DateTime? _lastProgrammaticMove;
 
   @override
   void initState() {
@@ -37,63 +47,87 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         longitude: 31.2357,
       ), // Cairo
     );
+    mapController.listenerRegionIsChanging.addListener(_onRegionChanged);
+    _startMapReadyFallback();
   }
 
   @override
   void dispose() {
+    _mapReadyFallbackTimer?.cancel();
+    _locationPollTimer?.cancel();
     _positionStream?.cancel();
+    mapController.listenerRegionIsChanging.removeListener(_onRegionChanged);
     mapController.dispose();
     super.dispose();
   }
 
   Future<void> _checkLocationPermission() async {
-    final permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      final granted = await Geolocator.requestPermission();
-      if (granted == LocationPermission.denied ||
-          granted == LocationPermission.deniedForever) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'تطبيق Waslny يحتاج إلى صلاحية الموقع لعرض الخريطة',
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        final granted = await Geolocator.requestPermission();
+        if (granted == LocationPermission.denied ||
+            granted == LocationPermission.deniedForever) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'تطبيق Waslny يحتاج إلى صلاحية الموقع لعرض الخريطة',
+                ),
+                backgroundColor: AppColors.error,
               ),
-              backgroundColor: AppColors.error,
-            ),
-          );
+            );
+          }
+          return;
         }
-        return;
       }
-    }
 
-    _locationGranted = true;
-    await _getCurrentLocation();
-    _startLocationUpdates();
+      _locationGranted = true;
+      await _getCurrentLocation();
+      _startLocationUpdates();
+    } catch (e) {
+      // Geolocation APIs can throw on web (e.g. browser blocks geolocation) —
+      // don't let that crash the home screen.
+      logError('RiderHomeScreen', 'Location permission error: $e', e);
+    }
   }
 
   Future<void> _getCurrentLocation() async {
     try {
-      final position = await Geolocator.getCurrentPosition(
+      var position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
         ),
       );
+      // Best-effort refinement: right after launch the first fix is often
+      // coarse, so re-request until it's accurate (or we give up trying).
+      for (var attempt = 0; attempt < 2; attempt++) {
+        if (position.accuracy <= 50) break;
+        try {
+          final refined = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 10),
+            ),
+          );
+          if (refined.accuracy < position.accuracy) {
+            position = refined;
+          } else {
+            break;
+          }
+        } catch (_) {
+          break; // keep the current fix if refinement fails
+        }
+      }
       logInfo(
         'RiderHomeScreen',
-        '📍 Current location: ${position.latitude}, ${position.longitude}',
+        '📍 Current location: ${position.latitude}, ${position.longitude} '
+            '(accuracy: ${position.accuracy.toStringAsFixed(0)}m)',
       );
 
+      // Updates the marker and (in follow mode) re-centers the camera.
       await _updateRiderLocation(position);
-
-      // Move the map to the current location on first fix
-      if (_mapReady) {
-        await mapController.moveTo(
-          osm.GeoPoint(
-            latitude: position.latitude,
-            longitude: position.longitude,
-          ),
-        );
-      }
     } catch (e) {
       logError('RiderHomeScreen', 'Failed to get location: $e', e);
     }
@@ -102,7 +136,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   /// Adds / moves the rider marker on the map for the given [position].
   Future<void> _updateRiderLocation(Position position) async {
     if (!mounted) return;
-    _currentPosition = position;
+    // Keep the on-screen "current location" text in sync with live updates.
+    setState(() => _currentPosition = position);
     final point = osm.GeoPoint(
       latitude: position.latitude,
       longitude: position.longitude,
@@ -123,6 +158,12 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         );
       }
       _riderMarkerPoint = point;
+
+      // Real-time follow: keep the camera centered on the rider.
+      if (_followUser) {
+        _lastProgrammaticMove = DateTime.now();
+        await mapController.moveTo(point);
+      }
     } catch (e) {
       logError('RiderHomeScreen', 'Failed to update rider marker: $e', e);
     }
@@ -135,21 +176,102 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 5, // meters
+            distanceFilter: 2, // meters — smooth real-time tracking
           ),
         ).listen((position) {
           if (mounted) _updateRiderLocation(position);
         });
+
+    // The web geolocation stream can be quiet/unreliable — poll periodically
+    // so the marker keeps moving in real time on Chrome.
+    if (kIsWeb) {
+      _locationPollTimer?.cancel();
+      _locationPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        if (mounted) _getCurrentLocation();
+      });
+    }
   }
 
-  /// Re-centers the map on the rider's current position.
+  /// Re-centers the map on the rider's current position and re-enables
+  /// follow mode.
+  ///
+  /// Re-fetches the location with the best available accuracy (rather than
+  /// reusing a possibly stale fix), moves the rider marker, re-centers the
+  /// camera with animation and refreshes the on-screen "current location"
+  /// text. If the fresh fix fails (GPS off, permission denied, timeout) a
+  /// clear Arabic [SnackBar] is shown instead of failing silently.
   Future<void> _recenter() async {
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      if (!mounted) return;
+
+      // Re-enable follow mode, then refresh the marker + location text (and
+      // re-center the camera when following).
+      setState(() => _followUser = true);
+      _lastProgrammaticMove = DateTime.now();
+      await _updateRiderLocation(position);
+
+      // Guarantee an animated camera move to the fresh fix even if follow
+      // was previously disabled by the user panning the map.
+      if (_mapReady) {
+        _lastProgrammaticMove = DateTime.now();
+        try {
+          await mapController.moveTo(
+            osm.GeoPoint(
+              latitude: position.latitude,
+              longitude: position.longitude,
+            ),
+            animate: true,
+          );
+        } catch (e) {
+          logError('RiderHomeScreen', 'Failed to recenter map: $e', e);
+        }
+      }
+    } catch (e) {
+      logError('RiderHomeScreen', 'Failed to re-fetch location: $e', e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تعذّر تحديد موقعك الحالي، تحقق من إعدادات الموقع'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Called when the visible map region changes. If the map was moved by the
+  /// user (not by our own follow/recenter moves) and drifted away from the
+  /// rider, stop auto-following so the user can freely explore the map.
+  void _onRegionChanged() {
+    if (!_followUser) return;
+    // Wait until the rider marker has been placed once.
+    if (_riderMarkerPoint == null) return;
+    // Ignore region changes caused by our own camera moves.
+    final lastMove = _lastProgrammaticMove;
+    if (lastMove != null &&
+        DateTime.now().difference(lastMove) <
+            const Duration(milliseconds: 800)) {
+      return;
+    }
+    final region = mapController.listenerRegionIsChanging.value;
     final position = _currentPosition;
-    if (position == null || !_mapReady) return;
-    await mapController.moveTo(
-      osm.GeoPoint(latitude: position.latitude, longitude: position.longitude),
-      animate: true,
+    if (region == null || position == null) return;
+    final distance = Geolocator.distanceBetween(
+      region.center.latitude,
+      region.center.longitude,
+      position.latitude,
+      position.longitude,
     );
+    if (distance > 100) {
+      setState(() => _followUser = false);
+      logInfo('RiderHomeScreen', 'Follow disabled — user moved the map');
+    }
   }
 
   void _onMapReady(bool isReady) {
@@ -158,6 +280,25 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     if (_locationGranted && _currentPosition != null) {
       _getCurrentLocation();
     }
+  }
+
+  /// On web, `flutter_osm_plugin` does not always fire
+  /// [OSMFlutter.onMapIsReady] — the callback can be silently skipped on
+  /// Chrome/Web — so `_mapReady` would stay `false` and the loading spinner
+  /// would cover the screen forever. As a safety net, force the UI ready
+  /// after a short delay and place the rider marker if a fix is available.
+  void _startMapReadyFallback() {
+    if (!kIsWeb) return;
+    _mapReadyFallbackTimer?.cancel();
+    _mapReadyFallbackTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted || _mapReady) return;
+      logInfo('RiderHomeScreen', 'Map ready fallback (web) — forcing UI ready');
+      setState(() => _mapReady = true);
+      if (_locationGranted && _currentPosition != null) {
+        // Places the rider marker and (follow mode) centers the camera.
+        _updateRiderLocation(_currentPosition!);
+      }
+    });
   }
 
   /// Top-bar action icon that navigates to the given named route.
@@ -217,23 +358,31 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
 
   Future<void> _requestRide() => _openRideOptions();
 
-  /// Compact button that re-centers the map on the rider's current position.
+  /// Compact button that re-centers the map on the rider's current position
+  /// (and re-enables follow mode). Visually highlights when following.
   Widget _recenterButton() {
+    final following = _followUser;
     return SizedBox(
       width: AppSpacing.buttonHeightLg,
       height: AppSpacing.buttonHeightLg,
       child: ElevatedButton(
         onPressed: _recenter,
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.cardBg,
-          foregroundColor: AppColors.primaryGreen,
+          backgroundColor: following ? AppColors.primary : AppColors.cardBg,
+          foregroundColor: following
+              ? AppColors.textOnPrimary
+              : AppColors.primaryGreen,
           padding: EdgeInsets.zero,
           elevation: 4,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
           ),
         ),
-        child: const Icon(Icons.my_location_rounded),
+        child: Icon(
+          following
+              ? Icons.my_location_rounded
+              : Icons.location_searching_rounded,
+        ),
       ),
     );
   }
