@@ -3,9 +3,11 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
+import 'package:wasalny_rider/features/chat/chat_screen.dart';
 import 'package:wasalny_rider/features/trip/trip_rating_screen.dart';
 
 /// Arguments passed from the ride-options flow to [ActiveTripScreen].
@@ -25,6 +27,21 @@ class ActiveTripArgs {
 
   final double fare;
 
+  /// Backend ride id — used as the trip chat room.
+  final String? rideId;
+
+  /// Captain (driver) id — used as the chat receiver.
+  final String? driverId;
+
+  /// Captain display name.
+  final String? driverName;
+
+  /// Captain phone number (used by the call button via `tel:`).
+  final String? driverPhone;
+
+  /// Captain car description (model / plate).
+  final String? driverCar;
+
   const ActiveTripArgs({
     required this.pickupLat,
     required this.pickupLng,
@@ -35,6 +52,11 @@ class ActiveTripArgs {
     required this.rideType,
     required this.payment,
     required this.fare,
+    this.rideId,
+    this.driverId,
+    this.driverName,
+    this.driverPhone,
+    this.driverCar,
   });
 }
 
@@ -66,11 +88,27 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     rideType: 'economy',
     payment: 'cash',
     fare: 40,
+    driverName: 'أحمد محمد',
+    driverCar: 'Hyundai Elantra · ١٢٣٤ أ ب ج',
   );
 
-  // Simulated driver info (will come from the backend/socket later).
-  static const String _driverName = 'أحمد محمد';
-  static const String _driverCar = 'Hyundai Elantra · ١٢٣٤ أ ب ج';
+  /// Captain name from the real ride data (falls back to a neutral label).
+  String get _driverName =>
+      _args.driverName?.isNotEmpty == true ? _args.driverName! : 'الكابتن';
+
+  /// Captain car description (falls back when no data is available).
+  String get _driverCar => _args.driverCar?.isNotEmpty == true
+      ? _args.driverCar!
+      : 'لا توجد بيانات السيارة';
+
+  /// Whether a usable captain phone number is available for calling.
+  bool get _hasDriverPhone =>
+      _args.driverPhone != null && _args.driverPhone!.trim().isNotEmpty;
+
+  /// Whether the ride + captain ids are available for the trip chat.
+  bool get _canChat =>
+      (_args.rideId != null && _args.rideId!.isNotEmpty) &&
+      (_args.driverId != null && _args.driverId!.isNotEmpty);
 
   /// Arabic label shown for the backend ride type.
   String get _rideTypeLabel => switch (_args.rideType) {
@@ -237,16 +275,59 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     );
   }
 
-  void _callDriver() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('جارٍ الاتصال بالسائق...')));
+  Future<void> _callDriver() async {
+    final phone = _args.driverPhone;
+    if (phone == null || phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('رقم هاتف الكابتن غير متاح حالياً'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+    final uri = Uri(scheme: 'tel', path: phone.trim());
+    try {
+      final launched = await launchUrl(uri);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذّر فتح تطبيق الاتصال')),
+        );
+      }
+    } catch (e) {
+      logError('ActiveTripScreen', 'launchUrl tel failed: $e', e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذّر فتح تطبيق الاتصال')),
+        );
+      }
+    }
   }
 
   void _chatDriver() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('فتح المحادثة مع السائق...')));
+    final tripId = _args.rideId;
+    final driverId = _args.driverId;
+    if (tripId == null ||
+        tripId.isEmpty ||
+        driverId == null ||
+        driverId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('بيانات الكابتن غير متاحة للمحادثة حالياً'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          tripId: tripId,
+          receiverId: driverId,
+          receiverName: _driverName,
+        ),
+      ),
+    );
   }
 
   @override
@@ -330,10 +411,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               child: Row(
                 children: [
-                  _infoChip(
-                    Icons.directions_car_rounded,
-                    _rideTypeLabel,
-                  ),
+                  _infoChip(Icons.directions_car_rounded, _rideTypeLabel),
                   const SizedBox(width: AppSpacing.sm),
                   _infoChip(
                     Icons.payments_rounded,
@@ -370,10 +448,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(_driverName, style: AppTextStyles.titleMedium),
-                        Text(
-                          _driverCar,
-                          style: AppTextStyles.bodySmall,
-                        ),
+                        Text(_driverCar, style: AppTextStyles.bodySmall),
                       ],
                     ),
                   ),
@@ -429,6 +504,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                       icon: Icons.call_rounded,
                       label: 'اتصال',
                       onTap: _callDriver,
+                      // No phone number → greyed out; tapping shows a message.
+                      enabled: _hasDriverPhone,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
@@ -437,6 +514,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                       icon: Icons.chat_bubble_rounded,
                       label: 'محادثة',
                       onTap: _chatDriver,
+                      enabled: _canChat,
                     ),
                   ),
                 ],
@@ -526,7 +604,11 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
+    bool enabled = true,
   }) {
+    // A disabled (greyed) button still responds to taps so it can show a
+    // clear message explaining why the action is unavailable.
+    final foreground = enabled ? AppColors.primaryGreen : AppColors.textMuted;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
@@ -535,14 +617,21 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
         decoration: BoxDecoration(
           color: AppColors.cardBg,
           borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(
+            color: enabled
+                ? AppColors.border
+                : AppColors.border.withValues(alpha: 0.5),
+          ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: AppColors.primaryGreen, size: AppSpacing.iconMd),
+            Icon(icon, color: foreground, size: AppSpacing.iconMd),
             const SizedBox(width: AppSpacing.sm),
-            Text(label, style: AppTextStyles.bodyMedium),
+            Text(
+              label,
+              style: AppTextStyles.bodyMedium?.copyWith(color: foreground),
+            ),
           ],
         ),
       ),

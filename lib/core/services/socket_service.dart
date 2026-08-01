@@ -17,6 +17,9 @@ class SocketService {
   /// Callback when the ride status changes (accepted, arrived, started, completed).
   void Function(String status, Map<String, dynamic> data)? onRideStatusChanged;
 
+  /// Callback when a new chat message arrives during an active trip.
+  void Function(Map<String, dynamic> message)? onNewMessage;
+
   /// Initialize the socket connection to the server.
   void initSocket(String userId, String token) {
     if (socket != null && socket!.connected) return;
@@ -59,6 +62,10 @@ class SocketService {
     socket!.on('ride.status_update', (data) => _handleRideEvent(data, ''));
     socket!.on('ride.accepted', (data) => _handleRideEvent(data, 'accepted'));
     socket!.on('ride.cancelled', (data) => _handleRideEvent(data, 'cancelled'));
+
+    // Chat messages (trip chat between rider & captain).
+    socket!.on('new_message', _handleNewMessage);
+    socket!.on('receive_message', _handleNewMessage);
   }
 
   /// Parses driver-location payloads (`lat`/`lng`, `latitude`/`longitude`,
@@ -128,6 +135,22 @@ class SocketService {
     }
   }
 
+  /// Parses an incoming chat message payload and forwards it via
+  /// [onNewMessage]. Handles `{text, senderId, receiverId, tripId, ...}` and
+  /// nested `data` / `message` wrapper shapes.
+  void _handleNewMessage(dynamic data) {
+    if (data is! Map) return;
+    try {
+      var map = Map<String, dynamic>.from(data);
+      // Some backends wrap the message under `data` / `message`.
+      final wrapped = map['data'] ?? map['message'];
+      if (wrapped is Map) map = Map<String, dynamic>.from(wrapped);
+      onNewMessage?.call(map);
+    } catch (e) {
+      log('⚠️ خطأ في تحليل الرسالة: $e');
+    }
+  }
+
   /// Request a ride (emit event to the server).
   void requestRide(Map<String, dynamic> rideData) {
     if (socket == null || !socket!.connected) {
@@ -146,6 +169,34 @@ class SocketService {
     }
     socket!.emit('ride.cancel', {'rideId': rideId});
     log('📤 تم إرسال إلغاء الرحلة عبر السوكيت');
+  }
+
+  /// Join a trip room so chat messages for this ride are received.
+  void joinTrip(String tripId) {
+    if (socket == null || !socket!.connected) {
+      log('⚠️ السوكيت غير متصل. لا يمكن الانضمام للرحلة.');
+      return;
+    }
+    socket!.emit('join_trip', {'tripId': tripId});
+    log('📥 تم الانضمام إلى غرفة الرحلة: $tripId');
+  }
+
+  /// Send a chat message to the captain during an active trip.
+  void sendMessage({
+    required String tripId,
+    required String receiverId,
+    required String text,
+  }) {
+    if (socket == null || !socket!.connected) {
+      log('⚠️ السوكيت غير متصل. لا يمكن إرسال الرسالة.');
+      return;
+    }
+    socket!.emit('send_message', {
+      'tripId': tripId,
+      'receiverId': receiverId,
+      'text': text,
+    });
+    log('📤 تم إرسال الرسالة إلى $receiverId');
   }
 
   /// Disconnect the socket.

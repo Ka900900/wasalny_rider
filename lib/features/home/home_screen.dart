@@ -554,14 +554,15 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     logInfo('HomeScreen', 'ride created — id: $rideId');
 
     // Real driver search: socket events + 4s polling fallback. Only navigate
-    // to the active trip when a driver is actually found.
-    final found = await showDialog<bool>(
+    // to the active trip when a driver is actually found (the dialog pops with
+    // the captain's data so the trip screen can offer call & chat).
+    final assignment = await showDialog<DriverAssignment>(
       context: context,
       barrierDismissible: false,
       builder: (_) => FindingDriverDialog(rideId: rideId),
     );
 
-    if (found == true && mounted) {
+    if (assignment != null && mounted) {
       Navigator.pushNamed(
         context,
         '/active-trip',
@@ -575,6 +576,11 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
           rideType: result.type,
           payment: result.payment,
           fare: result.fare,
+          rideId: assignment.rideId,
+          driverId: assignment.driverId,
+          driverName: assignment.driverName,
+          driverPhone: assignment.driverPhone,
+          driverCar: assignment.driverCar,
         ),
       );
     }

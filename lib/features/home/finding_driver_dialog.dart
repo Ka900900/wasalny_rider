@@ -31,19 +31,45 @@ const Set<String> _waitingStatuses = {
 };
 
 /// Statuses that mean the ride was cancelled / rejected server-side.
-const Set<String> _cancelledStatuses = {
-  'cancelled',
-  'canceled',
-  'rejected',
-};
+const Set<String> _cancelledStatuses = {'cancelled', 'canceled', 'rejected'};
+
+/// Result returned by [FindingDriverDialog] when a driver accepts the ride.
+///
+/// Carries the captain's data (extracted from the socket payload / ride
+/// polling) so the caller can pass it to the active-trip screen for the call
+/// and chat buttons.
+class DriverAssignment {
+  const DriverAssignment({
+    required this.rideId,
+    this.driverId,
+    this.driverName,
+    this.driverPhone,
+    this.driverCar,
+  });
+
+  /// The backend ride id.
+  final String rideId;
+
+  /// The captain (driver) id — used as the chat receiver.
+  final String? driverId;
+
+  /// Captain display name.
+  final String? driverName;
+
+  /// Captain phone number.
+  final String? driverPhone;
+
+  /// Captain car description (model / plate).
+  final String? driverCar;
+}
 
 /// Modal dialog shown while the app searches for a real nearby driver.
 ///
 /// Listens to [SocketService.onRideStatusChanged] for live status updates and
 /// falls back to polling [ApiService.getCurrentRide] every 4 seconds. Pops
-/// with `true` when a driver accepts the ride, or `false` on user cancel or
-/// server-side cancellation. The "إلغاء الطلب" button calls both
-/// [ApiService.cancelRide] and [SocketService.cancelRide].
+/// with a [DriverAssignment] when a driver accepts the ride, or `null` on
+/// user cancel or server-side cancellation. The "إلغاء الطلب" button calls
+/// both [ApiService.cancelRide] and [SocketService.cancelRide].
 class FindingDriverDialog extends StatefulWidget {
   const FindingDriverDialog({super.key, required this.rideId});
 
@@ -107,7 +133,7 @@ class _FindingDriverDialogState extends State<FindingDriverDialog>
       if (!mounted || _finished) return;
       final status = _extractStatus(data);
       if (status == null) return;
-      _handleStatus(status);
+      _handleStatus(status, data);
     } catch (e) {
       logWarning('FindingDriverDialog', 'poll ride status failed: $e');
     }
@@ -116,16 +142,16 @@ class _FindingDriverDialogState extends State<FindingDriverDialog>
   void _onRideStatusChanged(String status, Map<String, dynamic> data) {
     if (_finished) return;
     logInfo('FindingDriverDialog', 'ride status via socket -> $status');
-    _handleStatus(status);
+    _handleStatus(status, data);
   }
 
-  void _handleStatus(String status) {
+  void _handleStatus(String status, Map<String, dynamic> data) {
     final normalized = status.trim().toLowerCase();
     // PENDING / pending → keep waiting (do nothing).
     if (_waitingStatuses.contains(normalized)) return;
     // ACCEPTED / accepted → driver found.
     if (_driverFoundStatuses.contains(normalized)) {
-      _finish(true);
+      _finish(true, data: data);
       return;
     }
     if (_cancelledStatuses.contains(normalized)) {
@@ -156,11 +182,61 @@ class _FindingDriverDialogState extends State<FindingDriverDialog>
     return null;
   }
 
-  void _finish(bool found) {
+  void _finish(bool found, {Map<String, dynamic>? data}) {
     if (_finished || !mounted) return;
     _finished = true;
     _pollTimer?.cancel();
-    Navigator.of(context).pop(found);
+    if (found) {
+      Navigator.of(context).pop(_assignmentFromData(data ?? const {}));
+    } else {
+      Navigator.of(context).pop(null);
+    }
+  }
+
+  /// Builds a [DriverAssignment] from the socket / poll payload that carried
+  /// the accepted event. Handles both a nested `driver` object and top-level
+  /// `driverId`/`driverName`/... fields (flexible against the backend shape).
+  DriverAssignment _assignmentFromData(Map<String, dynamic> data) {
+    String? driverId;
+    String? driverName;
+    String? driverPhone;
+    String? driverCar;
+
+    final driver = data['driver'];
+    if (driver is Map) {
+      final d = Map<String, dynamic>.from(driver);
+      driverId = _asStr(
+        d['id'] ?? d['driverId'] ?? d['userId'] ?? d['captainId'],
+      );
+      driverName = _asStr(d['name'] ?? d['fullName'] ?? d['driverName']);
+      driverPhone = _asStr(d['phone'] ?? d['phoneNumber'] ?? d['driverPhone']);
+      driverCar = _asStr(
+        d['car'] ?? d['vehicle'] ?? d['carModel'] ?? d['carPlate'],
+      );
+    }
+    driverId ??= _asStr(
+      data['driverId'] ?? data['driver_id'] ?? data['captainId'],
+    );
+    driverName ??= _asStr(data['driverName'] ?? data['captainName']);
+    driverPhone ??= _asStr(data['driverPhone'] ?? data['driver_phone']);
+    driverCar ??= _asStr(
+      data['driverCar'] ?? data['carModel'] ?? data['vehicle'],
+    );
+
+    return DriverAssignment(
+      rideId: widget.rideId,
+      driverId: driverId,
+      driverName: driverName,
+      driverPhone: driverPhone,
+      driverCar: driverCar,
+    );
+  }
+
+  /// Coerces a JSON value into a non-empty String, else null.
+  String? _asStr(Object? value) {
+    if (value is String && value.isNotEmpty) return value;
+    if (value is num) return value.toString();
+    return null;
   }
 
   Future<void> _cancel() async {
