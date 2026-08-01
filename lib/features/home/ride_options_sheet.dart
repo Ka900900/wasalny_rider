@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import 'package:wasalny_rider/core/services/places_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
+import 'package:wasalny_rider/core/utils/logger.dart';
 
 /// Selection returned by [RideOptionsSheet].
 typedef RideSelection = ({
@@ -17,29 +20,9 @@ typedef RideSelection = ({
   String dropoffAddress,
 });
 
-/// A popular destination the passenger can pick from.
-class _PlaceOption {
-  final String name;
-  final double lat;
-  final double lng;
-
-  const _PlaceOption(this.name, this.lat, this.lng);
-}
-
-const List<_PlaceOption> _popularPlaces = [
-  _PlaceOption('مطار القاهرة الدولي', 30.1219, 31.4056),
-  _PlaceOption('وسط البلد (ميدان التحرير)', 30.0444, 31.2357),
-  _PlaceOption('مدينة نصر', 30.0561, 31.3209),
-  _PlaceOption('التجمع الخامس', 30.0082, 31.4408),
-  _PlaceOption('مدينة 6 أكتوبر', 29.9686, 30.9470),
-  _PlaceOption('الشيخ زايد', 30.0459, 31.0040),
-  _PlaceOption('المعادي', 29.9598, 31.2497),
-  _PlaceOption('مصر الجديدة', 30.1007, 31.3408),
-];
-
-/// Bottom sheet where the passenger picks a destination, a ride type
-/// (Economy / Comfort / Premium), a payment method (Cash / Card) and
-/// confirms the request.
+/// Bottom sheet where the passenger searches for a real destination (via
+/// Nominatim / OpenStreetMap), picks a ride type (Economy / Comfort /
+/// Premium), a payment method (Cash / Card) and confirms the request.
 ///
 /// Pops with a [RideSelection] record on confirm, or `null` when dismissed.
 class RideOptionsSheet extends StatefulWidget {
@@ -62,7 +45,13 @@ class RideOptionsSheet extends StatefulWidget {
 class _RideOptionsSheetState extends State<RideOptionsSheet> {
   String _selectedType = 'economy'; // 'economy' | 'comfort' | 'premium'
   String _selectedPayment = 'cash'; // 'cash' | 'card'
-  _PlaceOption? _destination;
+  PlaceResult? _destination;
+
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  Timer? _debounce;
+  bool _searching = false;
+  List<PlaceResult> _results = const [];
 
   static double _deg2rad(double deg) => deg * (pi / 180);
 
@@ -103,12 +92,45 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
 
   double get _fare => _fareForType(_selectedType);
 
+  /// Debounced (450 ms) real search against Nominatim while the user types.
+  void _onSearchChanged(String query) {
+    _debounce?.cancel();
+    final q = query.trim();
+    if (q.isEmpty) {
+      setState(() {
+        _searching = false;
+        _results = const [];
+      });
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 450), () async {
+      if (!mounted) return;
+      setState(() => _searching = true);
+      final results = await PlacesService.instance.search(q);
+      if (!mounted) return;
+      setState(() {
+        _searching = false;
+        _results = results;
+      });
+      logInfo('RideOptionsSheet', 'found ${results.length} places for "$q"');
+    });
+  }
+
+  void _selectDestination(PlaceResult place) {
+    setState(() {
+      _destination = place;
+      _results = const [];
+      _searchController.text = place.displayName;
+    });
+    _searchFocus.unfocus();
+  }
+
   void _confirm() {
     final dest = _destination;
     if (dest == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('يرجى اختيار الوجهة أولاً'),
+          content: Text('يرجى اختيار وجهة من نتائج البحث أولاً'),
           backgroundColor: AppColors.warning,
         ),
       );
@@ -123,8 +145,16 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       pickupAddress: widget.pickupAddress,
       dropoffLat: dest.lat,
       dropoffLng: dest.lng,
-      dropoffAddress: dest.name,
+      dropoffAddress: dest.displayName,
     ));
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    _searchFocus.dispose();
+    super.dispose();
   }
 
   @override
@@ -140,7 +170,10 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
         left: AppSpacing.xl,
         right: AppSpacing.xl,
         top: AppSpacing.md,
-        bottom: MediaQuery.of(context).padding.bottom + AppSpacing.xl,
+        bottom:
+            MediaQuery.of(context).padding.bottom +
+            MediaQuery.of(context).viewInsets.bottom +
+            AppSpacing.xl,
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -170,16 +203,14 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
             _buildPickupCard(),
             const SizedBox(height: AppSpacing.xl),
 
-            // Destination selector
-            Text('اختر الوجهة', style: AppTextStyles.titleMedium),
+            // Destination search — real places via Nominatim
+            Text('إلى أين تريد الذهاب؟', style: AppTextStyles.titleMedium),
             const SizedBox(height: AppSpacing.md),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                for (final place in _popularPlaces) _buildPlaceChip(place),
-              ],
-            ),
+            _buildSearchField(),
+            if (_searching || _results.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.md),
+              _buildSearchResults(),
+            ],
             const SizedBox(height: AppSpacing.xl),
 
             // Ride type cards — Economy / Comfort / Premium, matching the
@@ -309,40 +340,89 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
     );
   }
 
-  Widget _buildPlaceChip(_PlaceOption place) {
-    final selected = _destination?.name == place.name;
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      focusNode: _searchFocus,
+      onChanged: _onSearchChanged,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'ابحث عن وجهة...',
+        prefixIcon: const Icon(
+          Icons.search_rounded,
+          color: AppColors.primaryGreen,
+        ),
+        suffixIcon: _searching
+            ? const Padding(
+                padding: EdgeInsets.all(AppSpacing.sm),
+                child: SizedBox(
+                  width: AppSpacing.iconSm,
+                  height: AppSpacing.iconSm,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            : (_searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () {
+                        _searchController.clear();
+                        _onSearchChanged('');
+                      },
+                    )
+                  : null),
+        filled: true,
+        fillColor: AppColors.cardBg,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    return Column(
+      children: [for (final place in _results) _buildResultTile(place)],
+    );
+  }
+
+  Widget _buildResultTile(PlaceResult place) {
+    final selected = _destination?.displayName == place.displayName;
     return InkWell(
-      onTap: () => setState(() => _destination = place),
-      borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+      onTap: () => _selectDestination(place),
+      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: AppSpacing.xs),
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
           vertical: AppSpacing.sm,
         ),
         decoration: BoxDecoration(
           color: selected ? AppColors.primaryContainer : AppColors.cardBg,
-          borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
           border: Border.all(
             color: selected ? AppColors.primaryGreen : AppColors.border,
             width: selected ? 2 : 1,
           ),
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.place_rounded,
               size: AppSpacing.iconSm,
               color: selected ? AppColors.primaryGreen : AppColors.textMuted,
             ),
-            const SizedBox(width: AppSpacing.xxs),
-            Text(
-              place.name,
-              style: AppTextStyles.labelSmall?.copyWith(
-                color: selected
-                    ? AppColors.primaryGreen
-                    : AppColors.textPrimary,
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                place.displayName,
+                style: AppTextStyles.bodySmall?.copyWith(
+                  color: selected
+                      ? AppColors.primaryGreen
+                      : AppColors.textPrimary,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],

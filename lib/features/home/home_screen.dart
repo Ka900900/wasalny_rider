@@ -6,6 +6,7 @@ import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 import 'package:geolocator/geolocator.dart';
 
 import 'package:wasalny_rider/core/services/api_service.dart';
+import 'package:wasalny_rider/core/services/places_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 import 'package:wasalny_rider/features/home/finding_driver_dialog.dart';
@@ -44,6 +45,12 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   /// Timestamp of the last logged marker failure, used to throttle repeated
   /// console errors on web (Leaflet DOM not ready / marker removed).
   DateTime? _lastMarkerErrorLogged;
+
+  /// Reverse-geocoded human-readable address of the rider's current
+  /// location, updated (throttled) whenever the position moves.
+  String _pickupAddress = '';
+  DateTime? _lastReverseGeocodeAt;
+  osm.GeoPoint? _lastReverseGeocodePoint;
 
   @override
   void initState() {
@@ -158,6 +165,9 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     if (!mounted) return;
     // Keep the on-screen "current location" text in sync with live updates.
     setState(() => _currentPosition = position);
+    // Refresh the human-readable address (throttled to respect Nominatim
+    // fair-use — geocodes only after meaningful movement / cooldown).
+    _updatePickupAddress(position);
     if (!_mapReady || _updatingMarker) return;
     final point = osm.GeoPoint(
       latitude: position.latitude,
@@ -200,6 +210,41 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         _logMarkerErrorThrottled(e);
       }
     }
+  }
+
+  /// Reverse-geocodes the rider's current position into a readable address
+  /// (via [PlacesService]). Throttled so Nominatim isn't hammered: at most
+  /// once every 10 seconds, and only after the position moved >200 m.
+  Future<void> _updatePickupAddress(Position position) async {
+    final now = DateTime.now();
+    final lastAt = _lastReverseGeocodeAt;
+    final lastPoint = _lastReverseGeocodePoint;
+    if (lastAt != null &&
+        now.difference(lastAt) < const Duration(seconds: 10)) {
+      return;
+    }
+    if (lastPoint != null) {
+      final moved = Geolocator.distanceBetween(
+        lastPoint.latitude,
+        lastPoint.longitude,
+        position.latitude,
+        position.longitude,
+      );
+      if (moved < 200) return;
+    }
+    final address = await PlacesService.instance.reverseGeocode(
+      position.latitude,
+      position.longitude,
+    );
+    if (!mounted) return;
+    setState(() {
+      _pickupAddress = address;
+      _lastReverseGeocodeAt = now;
+      _lastReverseGeocodePoint = osm.GeoPoint(
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+    });
   }
 
   /// Logs a marker/camera failure at most once every 5 seconds so repeated
@@ -432,9 +477,10 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     );
   }
 
-  /// Opens the ride-options bottom sheet, then the "searching for driver"
-  /// radar dialog, and finally navigates to the active trip when a driver is
-  /// found.
+  /// Opens the ride-options bottom sheet, sends a REAL ride request to the
+  /// backend, then shows the "searching for driver" dialog (socket events +
+  /// 4s polling fallback) and navigates to the active trip only when a
+  /// driver is actually found.
   Future<void> _openRideOptions() async {
     if (_currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -454,18 +500,19 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       builder: (_) => RideOptionsSheet(
         pickupLat: current.latitude,
         pickupLng: current.longitude,
-        pickupAddress:
-            '${current.latitude.toStringAsFixed(4)}, '
-            '${current.longitude.toStringAsFixed(4)}',
+        pickupAddress: _pickupAddress.isNotEmpty
+            ? _pickupAddress
+            : '${current.latitude.toStringAsFixed(4)}, '
+                  '${current.longitude.toStringAsFixed(4)}',
       ),
     );
     if (result == null || !mounted) return;
 
-    // Create the ride on the backend with a backend-compatible payload.
-    // If the request fails we still continue with the simulated flow so the
-    // user experience never breaks.
+    // Send a REAL ride request to the backend. On failure we stop — there is
+    // no simulated fallback anymore.
+    late final Map<String, dynamic> rideResponse;
     try {
-      await ApiService.instance.requestRide(
+      rideResponse = await ApiService.instance.requestRide(
         pickupLat: result.pickupLat,
         pickupLng: result.pickupLng,
         pickupAddress: result.pickupAddress,
@@ -477,21 +524,41 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       );
       logInfo('HomeScreen', 'ride request submitted successfully');
     } catch (e) {
-      logWarning(
-        'HomeScreen',
-        'requestRide failed — continuing simulation: $e',
-      );
+      logError('HomeScreen', 'requestRide failed: $e', e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('فشل إرسال الطلب، حاول مرة أخرى'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      return;
     }
-
-    // The awaited request may have taken a while — bail out if the screen
-    // was disposed in the meantime.
     if (!mounted) return;
 
-    // Searching-for-driver radar dialog (auto-dismisses when a driver is found).
+    // Extract the backend ride id so we can watch / cancel this ride.
+    final rideId = _extractRideId(rideResponse);
+    if (rideId == null || rideId.isEmpty) {
+      logWarning('HomeScreen', 'no ride id in response: $rideResponse');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('لم يتم تأكيد الرحلة، حاول مرة أخرى'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      return;
+    }
+    logInfo('HomeScreen', 'ride created — id: $rideId');
+
+    // Real driver search: socket events + 4s polling fallback. Only navigate
+    // to the active trip when a driver is actually found.
     final found = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const FindingDriverDialog(),
+      builder: (_) => FindingDriverDialog(rideId: rideId),
     );
 
     if (found == true && mounted) {
@@ -511,6 +578,39 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         ),
       );
     }
+  }
+
+  /// Extracts the ride id from a `POST /rides/request` response, supporting
+  /// `id`, `rideId`, `data.id`, `data.rideId` and `ride.id` shapes (string or
+  /// numeric ids).
+  String? _extractRideId(Map<String, dynamic> response) {
+    final direct = response['id'] ?? response['rideId'];
+    final directId = _asStringId(direct);
+    if (directId != null) return directId;
+    final ride = response['ride'];
+    if (ride is Map) {
+      final id = _asStringId(ride['id']);
+      if (id != null) return id;
+    }
+    final data = response['data'];
+    if (data is Map) {
+      final nested = data['id'] ?? data['rideId'];
+      final nestedId = _asStringId(nested);
+      if (nestedId != null) return nestedId;
+      final nestedRide = data['ride'];
+      if (nestedRide is Map) {
+        final id = _asStringId(nestedRide['id']);
+        if (id != null) return id;
+      }
+    }
+    return null;
+  }
+
+  /// Coerces a JSON id (String or num) into a non-empty String, else null.
+  String? _asStringId(Object? value) {
+    if (value is String && value.isNotEmpty) return value;
+    if (value is num) return value.toString();
+    return null;
   }
 
   @override
@@ -652,8 +752,10 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                           const SizedBox(width: AppSpacing.sm),
                           Expanded(
                             child: Text(
-                              'موقعك الحالي: ${_currentPosition!.latitude.toStringAsFixed(4)}, '
-                              '${_currentPosition!.longitude.toStringAsFixed(4)}',
+                              _pickupAddress.isNotEmpty
+                                  ? 'موقعك الحالي: $_pickupAddress'
+                                  : 'موقعك الحالي: ${_currentPosition!.latitude.toStringAsFixed(4)}, '
+                                        '${_currentPosition!.longitude.toStringAsFixed(4)}',
                               style: Theme.of(context).textTheme.bodySmall,
                               overflow: TextOverflow.ellipsis,
                             ),
