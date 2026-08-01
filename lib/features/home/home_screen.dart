@@ -37,6 +37,14 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   /// region-change events that our own follow/recenter moves trigger.
   DateTime? _lastProgrammaticMove;
 
+  /// Guards against overlapping addMarker/changeLocationMarker calls — the
+  /// position stream and the web poll timer can both fire concurrently.
+  bool _updatingMarker = false;
+
+  /// Timestamp of the last logged marker failure, used to throttle repeated
+  /// console errors on web (Leaflet DOM not ready / marker removed).
+  DateTime? _lastMarkerErrorLogged;
+
   @override
   void initState() {
     super.initState();
@@ -134,15 +142,29 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   }
 
   /// Adds / moves the rider marker on the map for the given [position].
+  ///
+  /// Protected against the web (Leaflet) failure mode where the map DOM isn't
+  /// ready yet or the marker element is gone (e.g. during rebuild/dispose):
+  /// - Marker calls are skipped unless the map is ready and the widget is
+  ///   mounted.
+  /// - Concurrent updates (position stream + web poll timer) are serialised
+  ///   with [_updatingMarker] so addMarker/changeLocationMarker never overlap.
+  /// - On failure [_riderMarkerPoint] is reset to null so the next attempt
+  ///   re-adds a fresh marker instead of calling changeLocationMarker against
+  ///   a stale point that no longer exists in the DOM.
+  /// - Repeated failures are logged at most once every 5 seconds so the
+  ///   console isn't flooded while the map is settling.
   Future<void> _updateRiderLocation(Position position) async {
     if (!mounted) return;
     // Keep the on-screen "current location" text in sync with live updates.
     setState(() => _currentPosition = position);
+    if (!_mapReady || _updatingMarker) return;
     final point = osm.GeoPoint(
       latitude: position.latitude,
       longitude: position.longitude,
     );
-    if (!_mapReady) return;
+
+    _updatingMarker = true;
     try {
       if (_riderMarkerPoint == null) {
         await mapController.addMarker(
@@ -158,15 +180,38 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         );
       }
       _riderMarkerPoint = point;
-
-      // Real-time follow: keep the camera centered on the rider.
-      if (_followUser) {
-        _lastProgrammaticMove = DateTime.now();
-        await mapController.moveTo(point);
-      }
     } catch (e) {
-      logError('RiderHomeScreen', 'Failed to update rider marker: $e', e);
+      // The marker element may have been removed from the DOM (Leaflet
+      // rebuild/dispose on web). Drop the tracked point so the next attempt
+      // re-adds a fresh marker instead of moving a stale one.
+      _riderMarkerPoint = null;
+      _logMarkerErrorThrottled(e);
+    } finally {
+      _updatingMarker = false;
     }
+
+    // Real-time follow: keep the camera centered on the rider (only when the
+    // marker itself was updated successfully).
+    if (_followUser && _riderMarkerPoint != null) {
+      _lastProgrammaticMove = DateTime.now();
+      try {
+        await mapController.moveTo(point);
+      } catch (e) {
+        _logMarkerErrorThrottled(e);
+      }
+    }
+  }
+
+  /// Logs a marker/camera failure at most once every 5 seconds so repeated
+  /// web (Leaflet) errors don't flood the console.
+  void _logMarkerErrorThrottled(Object error) {
+    final now = DateTime.now();
+    final last = _lastMarkerErrorLogged;
+    if (last != null && now.difference(last) < const Duration(seconds: 5)) {
+      return;
+    }
+    _lastMarkerErrorLogged = now;
+    logWarning('RiderHomeScreen', 'Failed to update rider marker: $error');
   }
 
   /// Subscribes to live position updates and keeps the rider marker in sync.
