@@ -15,6 +15,8 @@ class ApiConstants {
   static const String register = '/auth/register';
   static const String firebaseLogin = '/auth/firebase-login';
   static const String registerFcm = '/auth/register-fcm-token';
+  static const String forgotPassword = '/auth/forgot-password';
+  static const String resetPassword = '/auth/reset-password';
 
   // ── User endpoints ─────────────────────────────────
   static const String profile = '/user/profile';

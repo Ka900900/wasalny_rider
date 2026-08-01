@@ -22,7 +22,8 @@ typedef RideSelection = ({
 
 /// Bottom sheet where the passenger searches for a real destination (via
 /// Nominatim / OpenStreetMap), picks a ride type (Economy / Comfort /
-/// Premium), a payment method (Cash / Card) and confirms the request.
+/// Premium / Motorcycle / Scooter), a payment method (Cash / Card) and
+/// confirms the request.
 ///
 /// Pops with a [RideSelection] record on confirm, or `null` when dismissed.
 class RideOptionsSheet extends StatefulWidget {
@@ -43,7 +44,8 @@ class RideOptionsSheet extends StatefulWidget {
 }
 
 class _RideOptionsSheetState extends State<RideOptionsSheet> {
-  String _selectedType = 'economy'; // 'economy' | 'comfort' | 'premium'
+  String _selectedType =
+      'economy'; // 'economy' | 'comfort' | 'premium' | 'motorcycle' | 'scooter'
   String _selectedPayment = 'cash'; // 'cash' | 'card'
   PlaceResult? _destination;
 
@@ -77,14 +79,16 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
 
   /// Dynamic fare estimate (EGP) for a given ride type.
   ///
-  /// Mirrors the backend pricing (~7 EGP/km in normal hours, 15 in peak)
-  /// so the estimate stays close to the final price:
-  /// economy = 7/km, comfort = 9/km, premium = 13/km.
+  /// Mirrors the backend pricing so the estimate stays close to the final
+  /// price: economy = 7/km, comfort = 9/km, premium = 13/km,
+  /// motorcycle ≈ 2.7/km, scooter ≈ 2.5/km.
   double _fareForType(String type) {
     final km = _distanceKm;
     final ratePerKm = switch (type) {
       'comfort' => 9.0,
       'premium' => 13.0,
+      'motorcycle' => 2.7, // موتوسيكل ≈ 2.5–3 ج/كم
+      'scooter' => 2.5, // سكوتر أقل قليلاً من الموتوسيكل
       _ => 7.0, // 'economy'
     };
     return (ratePerKm * km).roundToDouble();
@@ -213,9 +217,9 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
             ],
             const SizedBox(height: AppSpacing.xl),
 
-            // Ride type cards — Economy / Comfort / Premium, matching the
-            // backend's allowed values. The family/xl tier is intentionally
-            // not shown to riders.
+            // Ride type cards — Economy / Comfort / Premium / Motorcycle /
+            // Scooter, matching the backend's allowed values. The family/xl
+            // tier is intentionally not shown to riders.
             Row(
               children: [
                 Expanded(
@@ -245,6 +249,31 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     desc: 'ممتاز',
                     icon: Icons.stars_rounded,
                     fare: _fareForType('premium'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            // Motorcycle / Scooter — cheaper two-wheeler options.
+            Row(
+              children: [
+                Expanded(
+                  child: _buildRideCard(
+                    type: 'motorcycle',
+                    label: 'موتوسيكل',
+                    desc: 'أسرع وأوفر',
+                    icon: Icons.two_wheeler_rounded,
+                    fare: _fareForType('motorcycle'),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: _buildRideCard(
+                    type: 'scooter',
+                    label: 'سكوتر',
+                    desc: 'الأوفر',
+                    icon: Icons.electric_scooter_rounded,
+                    fare: _fareForType('scooter'),
                   ),
                 ),
               ],

@@ -196,6 +196,37 @@ class ApiService {
     return result;
   }
 
+  /// Request a password-reset code for an email via
+  /// `POST /auth/forgot-password`.
+  ///
+  /// The backend always returns `success: true` (even for unknown emails, to
+  /// avoid account enumeration). In non-production environments it also
+  /// returns a `devCode` that can be shown to the user while testing.
+  Future<Map<String, dynamic>> forgotPassword({required String email}) async {
+    if (!backendEnabled) {
+      return <String, dynamic>{'success': true, 'devCode': '123456'};
+    }
+    final response = await _dio.post(
+      '/auth/forgot-password',
+      data: {'email': email.trim()},
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Reset the password using the emailed code + a new password via
+  /// `POST /auth/reset-password`.
+  Future<Map<String, dynamic>> resetPassword({
+    required String code,
+    required String newPassword,
+  }) async {
+    if (!backendEnabled) return <String, dynamic>{'success': true};
+    final response = await _dio.post(
+      '/auth/reset-password',
+      data: {'code': code.trim(), 'newPassword': newPassword},
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   /// Register / refresh the rider's FCM token on the backend.
   Future<bool> updateFcmTokenToServer(String token) async {
     if (!backendEnabled) return false;
@@ -306,7 +337,7 @@ class ApiService {
           logWarning(
             'ApiService',
             'cancelRide failed (POST fallback): '
-            '${postError.response?.statusCode} ${postError.response?.data}',
+                '${postError.response?.statusCode} ${postError.response?.data}',
           );
           return false;
         }

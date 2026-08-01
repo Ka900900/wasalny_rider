@@ -7,7 +7,9 @@ import 'package:wasalny_rider/core/utils/logger.dart';
 import 'package:wasalny_rider/core/widgets/route_transitions.dart';
 import 'package:wasalny_rider/features/splash/splash_screen.dart';
 import 'package:wasalny_rider/features/auth/login_screen.dart';
+import 'package:wasalny_rider/features/auth/forgot_password_screen.dart';
 import 'package:wasalny_rider/features/auth/register_screen.dart';
+import 'package:wasalny_rider/features/auth/reset_password_screen.dart';
 import 'package:wasalny_rider/features/home/home_screen.dart';
 import 'package:wasalny_rider/features/notifications/notifications_screen.dart';
 import 'package:wasalny_rider/features/profile/profile_screen.dart';
@@ -65,6 +67,12 @@ class MyApp extends StatelessWidget {
         return RouteTransitions.fade(const SplashScreen());
       case '/login':
         return RouteTransitions.slideUp(const LoginScreen());
+      case '/forgot-password':
+        return RouteTransitions.slideUp(const ForgotPasswordScreen());
+      case '/reset-password':
+        return RouteTransitions.slideUp(
+          ResetPasswordScreen(email: settings.arguments as String?),
+        );
       case '/home':
         return RouteTransitions.slideHorizontal(const RiderHomeScreen());
       case '/register':

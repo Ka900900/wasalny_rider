@@ -117,6 +117,11 @@ class _LoginScreenState extends State<LoginScreen>
     Navigator.pushNamed(context, '/register');
   }
 
+  /// Navigates to the forgot-password screen.
+  void _goToForgotPassword() {
+    Navigator.pushNamed(context, '/forgot-password');
+  }
+
   /// Shared post-auth step: the rider has no vehicle/verification flow, so we
   /// navigate straight to the home screen.
   Future<void> _completePostAuth() async {
@@ -327,6 +332,29 @@ class _LoginScreenState extends State<LoginScreen>
                                   validator: (v) => (v == null || v.length < 6)
                                       ? 'كلمة المرور 6 أحرف على الأقل'
                                       : null,
+                                ),
+                                // رابط نسيت كلمة المرور
+                                Align(
+                                  alignment: AlignmentDirectional.centerEnd,
+                                  child: TextButton(
+                                    onPressed: _isLoading
+                                        ? null
+                                        : _goToForgotPassword,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppColors.primary,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: AppSpacing.sm,
+                                        vertical: AppSpacing.xs,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'نسيت كلمة المرور؟',
+                                      style: AppTextStyles.bodyMedium?.copyWith(
+                                        color: AppColors.primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
