@@ -27,4 +27,5 @@ class ApiConstants {
   static const String cancelRide = '/rides/cancel/';
   static const String currentRide = '/rides/current';
   static const String rideHistory = '/rides/history';
+  static const String rideFare = '/rides/fare';
 }

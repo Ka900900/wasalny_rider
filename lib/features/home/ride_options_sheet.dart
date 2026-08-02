@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import 'package:wasalny_rider/core/services/places_service.dart';
+import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 
@@ -54,6 +55,9 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
   Timer? _debounce;
   bool _searching = false;
   List<PlaceResult> _results = const [];
+  // Stored fare responses per ride type returned by backend or fallback.
+  final Map<String, Map<String, dynamic>?> _fareResponses = {};
+  final Map<String, bool> _loadingFare = {};
 
   static double _deg2rad(double deg) => deg * (pi / 180);
 
@@ -82,19 +86,103 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
   /// Mirrors the backend pricing so the estimate stays close to the final
   /// price: economy = 7/km, comfort = 9/km, premium = 13/km,
   /// motorcycle ≈ 2.7/km, scooter ≈ 2.5/km.
-  double _fareForType(String type) {
+  // Legacy local per-km estimate kept for reference. Use
+  // `_getDisplayedFare` which prefers backend `finalPrice`.
+
+  double _localFareFallback(String type) {
     final km = _distanceKm;
-    final ratePerKm = switch (type) {
-      'comfort' => 9.0,
-      'premium' => 13.0,
-      'motorcycle' => 2.7, // موتوسيكل ≈ 2.5–3 ج/كم
-      'scooter' => 2.5, // سكوتر أقل قليلاً من الموتوسيكل
-      _ => 7.0, // 'economy'
+    final now = DateTime.now();
+    final hour = now.hour;
+    final isPeak = (hour >= 7 && hour < 9) || (hour >= 16 && hour < 19);
+
+    final carPerKm = isPeak ? 15.0 : 7.0;
+    double pricePerKm;
+    if (type == 'motorcycle') {
+      pricePerKm = carPerKm / 2.0;
+    } else if (type == 'scooter') {
+      pricePerKm = carPerKm / 3.0;
+    } else {
+      pricePerKm = carPerKm;
+    }
+
+    final durationMinutes = (km / 25.0 * 60.0).ceilToDouble();
+
+    final baseFare = switch (type) {
+      'economy' => 10.0,
+      'comfort' => 15.0,
+      'premium' => 25.0,
+      'motorcycle' => 6.0,
+      'scooter' => 5.0,
+      _ => 10.0,
     };
-    return (ratePerKm * km).roundToDouble();
+
+    final multiplier = switch (type) {
+      'premium' => 1.5,
+      'xl' => 1.2,
+      _ => 1.0,
+    };
+
+    final pricePerMinute = 0.75; // default when no other defaults are available
+
+    final price =
+        (baseFare + km * pricePerKm + durationMinutes * pricePerMinute) *
+        multiplier;
+    return price.roundToDouble();
   }
 
-  double get _fare => _fareForType(_selectedType);
+  double _getDisplayedFare(String type) {
+    final resp = _fareResponses[type];
+    if (resp != null) {
+      final fp = resp['finalPrice'];
+      if (fp is num) return fp.toDouble();
+    }
+    // Fall back to local estimation
+    return _localFareFallback(type);
+  }
+
+  Future<void> _fetchFareForType(String type) async {
+    // Avoid duplicate simultaneous fetches
+    if (_loadingFare[type] == true) return;
+    setState(() => _loadingFare[type] = true);
+    try {
+      final resp = await ApiService.instance.getRideFare(
+        originLat: widget.pickupLat,
+        originLng: widget.pickupLng,
+        destLat: _destination!.lat,
+        destLng: _destination!.lng,
+        rideType: type,
+      );
+      if (!mounted) return;
+      setState(() {
+        _fareResponses[type] = resp;
+      });
+    } catch (e) {
+      logWarning('RideOptionsSheet', 'getRideFare failed for $type: $e');
+      // Use local fallback and store a minimal response to display consistency
+      if (!mounted) return;
+      setState(() {
+        _fareResponses[type] = {
+          'finalPrice': _localFareFallback(type),
+          'fallback': true,
+        };
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _loadingFare[type] = false);
+      }
+    }
+  }
+
+  Future<void> _fetchAllFares() async {
+    final types = ['economy', 'comfort', 'premium', 'motorcycle', 'scooter'];
+    final futures = <Future>[];
+    for (final t in types) {
+      futures.add(_fetchFareForType(t));
+    }
+    await Future.wait(futures);
+  }
+
+  double get _fare => _getDisplayedFare(_selectedType);
 
   /// Debounced (450 ms) real search against Nominatim while the user types.
   void _onSearchChanged(String query) {
@@ -127,6 +215,8 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       _searchController.text = place.displayName;
     });
     _searchFocus.unfocus();
+    // Fetch fares for all available types when a destination is selected
+    _fetchAllFares();
   }
 
   void _confirm() {
@@ -140,10 +230,11 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       );
       return;
     }
+    final displayedFare = _getDisplayedFare(_selectedType);
     Navigator.of(context).pop((
       type: _selectedType,
       payment: _selectedPayment,
-      fare: _fare,
+      fare: displayedFare,
       pickupLat: widget.pickupLat,
       pickupLng: widget.pickupLng,
       pickupAddress: widget.pickupAddress,
@@ -228,7 +319,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'وصلني توفير',
                     desc: 'اقتصادي',
                     icon: Icons.directions_car_rounded,
-                    fare: _fareForType('economy'),
+                    fare: _getDisplayedFare('economy'),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -238,7 +329,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'وصلني مريح',
                     desc: 'راحة أعلى',
                     icon: Icons.airline_seat_recline_normal_rounded,
-                    fare: _fareForType('comfort'),
+                    fare: _getDisplayedFare('comfort'),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -248,7 +339,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'وصلني VIP',
                     desc: 'ممتاز',
                     icon: Icons.stars_rounded,
-                    fare: _fareForType('premium'),
+                    fare: _getDisplayedFare('premium'),
                   ),
                 ),
               ],
@@ -263,7 +354,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'موتوسيكل',
                     desc: 'أسرع وأوفر',
                     icon: Icons.two_wheeler_rounded,
-                    fare: _fareForType('motorcycle'),
+                    fare: _getDisplayedFare('motorcycle'),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -273,7 +364,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'سكوتر',
                     desc: 'الأوفر',
                     icon: Icons.electric_scooter_rounded,
-                    fare: _fareForType('scooter'),
+                    fare: _getDisplayedFare('scooter'),
                   ),
                 ),
               ],
@@ -469,7 +560,12 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
   }) {
     final selected = _selectedType == type;
     return InkWell(
-      onTap: () => setState(() => _selectedType = type),
+      onTap: () {
+        setState(() => _selectedType = type);
+        if (_destination != null && _fareResponses[type] == null) {
+          _fetchFareForType(type);
+        }
+      },
       borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -509,12 +605,19 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
               style: AppTextStyles.labelSmall,
             ),
             const SizedBox(height: AppSpacing.sm),
-            Text(
-              '$fare جنيه',
-              style: AppTextStyles.titleMedium?.copyWith(
-                color: AppColors.primaryGreen,
+            if (_loadingFare[type] == true && _fareResponses[type] == null)
+              const SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Text(
+                '${fare.roundToDouble()} جنيه',
+                style: AppTextStyles.titleMedium?.copyWith(
+                  color: AppColors.primaryGreen,
+                ),
               ),
-            ),
           ],
         ),
       ),

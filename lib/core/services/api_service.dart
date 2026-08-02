@@ -369,6 +369,35 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
+  /// Get ride fare estimate from backend.
+  ///
+  /// GET /rides/fare?originLat=&originLng=&destLat=&destLng=&rideType=
+  /// Returns the full response from the backend (contains `finalPrice`,
+  /// `distance`, `durationMinutes`, `isPeakHour`, ...).
+  /// On network failure the exception is allowed to bubble up so UI can
+  /// handle it and fall back to local estimation.
+  Future<Map<String, dynamic>> getRideFare({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    required String rideType,
+  }) async {
+    if (!backendEnabled) return <String, dynamic>{};
+    await _ensureTokenLoaded();
+    final response = await _dio.get(
+      ApiConstants.rideFare,
+      queryParameters: {
+        'originLat': originLat,
+        'originLng': originLng,
+        'destLat': destLat,
+        'destLng': destLng,
+        'rideType': rideType,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   // ── Helper ───────────────────────────────────────────
 
   /// Extracts the JWT from an auth response, supporting both a top-level
