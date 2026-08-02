@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
+import 'package:wasalny_rider/core/constants/app_constants.dart';
 import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/services/auth_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
@@ -63,6 +65,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('هذه الميزة ستتوفر قريبًا')));
+  }
+
+  /// يشارك رابط التطبيق عبر نافذة المشاركة الخاصة بالجهاز.
+  Future<void> _shareApp() async {
+    const message =
+        'جرّب تطبيق وصلني 🚕\nاطلب رحلة بسهولة — سيارة أو موتوسيكل أو سكوتر\nحمّل التطبيق من هنا:\n${AppConstants.appShareUrl}';
+    await Share.share(message, subject: 'وصلني');
   }
 
   @override
@@ -140,6 +149,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: Icons.settings_rounded,
               label: 'الإعدادات',
               onTap: _showComingSoon,
+            ),
+            _menuItem(
+              icon: Icons.share_rounded,
+              label: 'شارك التطبيق',
+              onTap: _shareApp,
             ),
             _menuItem(
               icon: Icons.info_outline_rounded,
