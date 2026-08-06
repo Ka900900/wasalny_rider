@@ -213,6 +213,13 @@ class AuthService {
     ApiService.instance.clearToken();
   }
 
+  /// Sends a password reset email via Firebase Auth for the given email.
+  /// Used by the «نسيت كلمة المرور» flow (Firebase sends the email directly,
+  /// instead of the backend console-only dev code).
+  Future<void> sendPasswordResetEmail(String email) async {
+    await _auth.sendPasswordResetEmail(email: email.trim());
+  }
+
   /// Exchange the Firebase ID token for the app's JWT via the backend.
   ///
   /// This is the crucial step that links Firebase Auth to our backend.

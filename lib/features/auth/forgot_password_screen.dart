@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import 'package:wasalny_rider/core/network/api_exceptions.dart';
-import 'package:wasalny_rider/core/services/api_service.dart';
+import 'package:wasalny_rider/core/services/auth_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/features/auth/reset_password_screen.dart';
 
@@ -39,16 +39,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final result = await ApiService.instance.forgotPassword(
-        email: _emailController.text,
-      );
+      await AuthService.instance.sendPasswordResetEmail(_emailController.text);
       if (!mounted) return;
       setState(() {
         _isLoading = false;
         _emailSent = true;
-        // في بيئة التطوير فقط يعيد الخادم الكود ليظهر للمستخدم.
-        final code = result['devCode'];
-        _devCode = code is String && code.isNotEmpty ? code : null;
+        _devCode = null;
       });
     } catch (e) {
       if (!mounted) return;
