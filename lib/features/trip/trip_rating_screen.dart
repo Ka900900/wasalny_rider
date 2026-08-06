@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
+import 'package:wasalny_rider/core/utils/price_formatter.dart';
 
 /// Optional ride context passed to the rating screen from the active trip.
 class TripRatingArgs {
@@ -41,7 +42,7 @@ class _TripRatingScreenState extends State<TripRatingScreen> {
     final fare = args?.fare;
     final parts = <String>[
       if (driver != null && driver.isNotEmpty) 'سائقك: $driver',
-      if (fare != null) 'التكلفة: ${fare.round()} جنيه',
+      if (fare != null) 'التكلفة: ${formatEGP(fare)}',
     ];
     return parts.join(' · ');
   }

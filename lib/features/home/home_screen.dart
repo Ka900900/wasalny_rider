@@ -9,6 +9,7 @@ import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/services/places_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
+import 'package:wasalny_rider/core/utils/price_formatter.dart';
 import 'package:wasalny_rider/features/home/finding_driver_dialog.dart';
 import 'package:wasalny_rider/features/home/ride_options_sheet.dart';
 import 'package:wasalny_rider/features/trip/active_trip_screen.dart';
@@ -575,7 +576,9 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
           dropoffAddress: result.dropoffAddress,
           rideType: result.type,
           payment: result.payment,
-          fare: result.fare,
+          // نفضّل السعر المؤكّد من الـ Backend (`ride.price`) على التقدير
+          // المحلي؛ ولو غاب كلاهما نمرّر 0 وتُعرض «غير محدد» في الرحلة.
+          fare: _extractRidePrice(rideResponse) ?? result.fare ?? 0,
           rideId: assignment.rideId,
           driverId: assignment.driverId,
           driverName: assignment.driverName,
@@ -621,6 +624,35 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   String? _asStringId(Object? value) {
     if (value is String && value.isNotEmpty) return value;
     if (value is num) return value.toString();
+    return null;
+  }
+
+  /// Extracts the confirmed ride price from a `POST /rides/request` response.
+  ///
+  /// The backend returns the price inside `ride.price` (a string like
+  /// `"349.12"` or a number). We also handle `data.price` / nested shapes
+  /// defensively. Returns `null` when no usable price is present.
+  double? _extractRidePrice(Map<String, dynamic> response) {
+    // 1) Backend shape: { message, ride: { price, ... } }
+    final ride = response['ride'];
+    if (ride is Map) {
+      final p = parsePrice(ride['price']);
+      if (p > 0) return p;
+    }
+    // 2) Top-level price
+    final direct = parsePrice(response['price']);
+    if (direct > 0) return direct;
+    // 3) Nested under data
+    final data = response['data'];
+    if (data is Map) {
+      final nestedPrice = parsePrice(data['price']);
+      if (nestedPrice > 0) return nestedPrice;
+      final nestedRide = data['ride'];
+      if (nestedRide is Map) {
+        final p2 = parsePrice(nestedRide['price']);
+        if (p2 > 0) return p2;
+      }
+    }
     return null;
   }
 

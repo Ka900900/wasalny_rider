@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -7,12 +6,13 @@ import 'package:wasalny_rider/core/services/places_service.dart';
 import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
+import 'package:wasalny_rider/core/utils/price_formatter.dart';
 
 /// Selection returned by [RideOptionsSheet].
 typedef RideSelection = ({
   String type,
   String payment,
-  double fare,
+  double? fare,
   double pickupLat,
   double pickupLng,
   String pickupAddress,
@@ -55,89 +55,24 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
   Timer? _debounce;
   bool _searching = false;
   List<PlaceResult> _results = const [];
-  // Stored fare responses per ride type returned by backend or fallback.
+  // Fare responses per ride type returned by the backend.
   final Map<String, Map<String, dynamic>?> _fareResponses = {};
   final Map<String, bool> _loadingFare = {};
 
-  static double _deg2rad(double deg) => deg * (pi / 180);
+  /// أنواع الرحلات التي فشل جلب سعرها من الخادم (لا نعرض سعراً وهمياً).
+  final Set<String> _fareFailed = {};
 
-  /// Approximate distance (km) between pickup and the selected destination
-  /// using the Haversine formula. Falls back to 4 km when no destination is
-  /// selected yet.
-  double get _distanceKm {
-    final dest = _destination;
-    if (dest == null) return 4.0;
-    const earthRadius = 6371.0;
-    final dLat = _deg2rad(dest.lat - widget.pickupLat);
-    final dLng = _deg2rad(dest.lng - widget.pickupLng);
-    final a =
-        sin(dLat / 2) * sin(dLat / 2) +
-        cos(_deg2rad(widget.pickupLat)) *
-            cos(_deg2rad(dest.lat)) *
-            sin(dLng / 2) *
-            sin(dLng / 2);
-    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    final km = earthRadius * c;
-    return km < 1.0 ? 1.0 : km;
-  }
-
-  /// Dynamic fare estimate (EGP) for a given ride type.
-  ///
-  /// Mirrors the backend pricing so the estimate stays close to the final
-  /// price: economy = 7/km, comfort = 9/km, premium = 13/km,
-  /// motorcycle ≈ 2.7/km, scooter ≈ 2.5/km.
-  // Legacy local per-km estimate kept for reference. Use
-  // `_getDisplayedFare` which prefers backend `finalPrice`.
-
-  double _localFareFallback(String type) {
-    final km = _distanceKm;
-    final now = DateTime.now();
-    final hour = now.hour;
-    final isPeak = (hour >= 7 && hour < 9) || (hour >= 16 && hour < 19);
-
-    final carPerKm = isPeak ? 15.0 : 7.0;
-    double pricePerKm;
-    if (type == 'motorcycle') {
-      pricePerKm = carPerKm / 2.0;
-    } else if (type == 'scooter') {
-      pricePerKm = carPerKm / 3.0;
-    } else {
-      pricePerKm = carPerKm;
-    }
-
-    final durationMinutes = (km / 25.0 * 60.0).ceilToDouble();
-
-    final baseFare = switch (type) {
-      'economy' => 10.0,
-      'comfort' => 15.0,
-      'premium' => 25.0,
-      'motorcycle' => 6.0,
-      'scooter' => 5.0,
-      _ => 10.0,
-    };
-
-    final multiplier = switch (type) {
-      'premium' => 1.5,
-      'xl' => 1.2,
-      _ => 1.0,
-    };
-
-    final pricePerMinute = 0.75; // default when no other defaults are available
-
-    final price =
-        (baseFare + km * pricePerKm + durationMinutes * pricePerMinute) *
-        multiplier;
-    return price.roundToDouble();
-  }
-
-  double _getDisplayedFare(String type) {
+  /// التكلفة التقديرية (بالجنيه) لنوع رحلة معيّن من الـ Backend، أو `null`
+  /// إذا لم تتوفر بعد أو فشل جلبها. لا نستخدم أي سعر محلي وهمي.
+  double? _getDisplayedFare(String type) {
     final resp = _fareResponses[type];
-    if (resp != null) {
-      final fp = resp['finalPrice'];
-      if (fp is num) return fp.toDouble();
+    if (resp == null) return null;
+    final fp = resp['finalPrice'];
+    if (fp is num) return fp.toDouble();
+    if (fp is String && fp.trim().isNotEmpty) {
+      return double.tryParse(fp.trim());
     }
-    // Fall back to local estimation
-    return _localFareFallback(type);
+    return null;
   }
 
   Future<void> _fetchFareForType(String type) async {
@@ -155,16 +90,15 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       if (!mounted) return;
       setState(() {
         _fareResponses[type] = resp;
+        _fareFailed.remove(type);
       });
     } catch (e) {
       logWarning('RideOptionsSheet', 'getRideFare failed for $type: $e');
-      // Use local fallback and store a minimal response to display consistency
       if (!mounted) return;
+      // لا نعرض سعراً وهمياً عند فشل الشبكة — نعرض «غير متاح» فقط.
       setState(() {
-        _fareResponses[type] = {
-          'finalPrice': _localFareFallback(type),
-          'fallback': true,
-        };
+        _fareResponses[type] = null;
+        _fareFailed.add(type);
       });
     } finally {
       if (mounted) {
@@ -181,8 +115,6 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
     }
     await Future.wait(futures);
   }
-
-  double get _fare => _getDisplayedFare(_selectedType);
 
   /// Debounced (450 ms) real search against Nominatim while the user types.
   void _onSearchChanged(String query) {
@@ -225,6 +157,17 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('يرجى اختيار وجهة من نتائج البحث أولاً'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+    // إذا كان تقدير السعر لا يزال قيد الجلب، نطلب الانتظار بدلاً من تأكيد
+    // طلب بسعر غير معروف (لن نعرض أبداً سعراً وهمياً).
+    if (_loadingFare[_selectedType] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('جارٍ حساب التكلفة، انتظر قليلاً...'),
           backgroundColor: AppColors.warning,
         ),
       );
@@ -319,7 +262,6 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'وصلني توفير',
                     desc: 'اقتصادي',
                     icon: Icons.directions_car_rounded,
-                    fare: _getDisplayedFare('economy'),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -329,7 +271,6 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'وصلني مريح',
                     desc: 'راحة أعلى',
                     icon: Icons.airline_seat_recline_normal_rounded,
-                    fare: _getDisplayedFare('comfort'),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -339,7 +280,6 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'وصلني VIP',
                     desc: 'ممتاز',
                     icon: Icons.stars_rounded,
-                    fare: _getDisplayedFare('premium'),
                   ),
                 ),
               ],
@@ -354,7 +294,6 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'موتوسيكل',
                     desc: 'أسرع وأوفر',
                     icon: Icons.two_wheeler_rounded,
-                    fare: _getDisplayedFare('motorcycle'),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -364,7 +303,6 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
                     label: 'سكوتر',
                     desc: 'الأوفر',
                     icon: Icons.electric_scooter_rounded,
-                    fare: _getDisplayedFare('scooter'),
                   ),
                 ),
               ],
@@ -395,17 +333,12 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // Fare estimate
+            // Fare estimate (من الـ Backend فقط)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('التكلفة التقديرية', style: AppTextStyles.bodyMedium),
-                Text(
-                  '$_fare جنيه',
-                  style: AppTextStyles.titleMedium?.copyWith(
-                    color: AppColors.primaryGreen,
-                  ),
-                ),
+                _buildFareLabel(_selectedType),
               ],
             ),
             const SizedBox(height: AppSpacing.xl),
@@ -551,12 +484,37 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
     );
   }
 
+  /// نص السعر لنوع رحلة معيّن: يعرض سعر الـ Backend، أو مؤشر تحميل، أو
+  /// «غير متاح» عند فشل الشبكة، أو «—» قبل توفر البيانات. لا نعرض سعراً
+  /// وهمياً أبداً.
+  Widget _buildFareLabel(String type) {
+    if (_loadingFare[type] == true && _fareResponses[type] == null) {
+      return const SizedBox(
+        height: 18,
+        width: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+    final fare = _getDisplayedFare(type);
+    if (fare != null) {
+      return Text(
+        formatEGP(fare),
+        style: AppTextStyles.titleMedium?.copyWith(
+          color: AppColors.primaryGreen,
+        ),
+      );
+    }
+    return Text(
+      _fareFailed.contains(type) ? 'غير متاح' : '—',
+      style: AppTextStyles.titleMedium?.copyWith(color: AppColors.textMuted),
+    );
+  }
+
   Widget _buildRideCard({
     required String type,
     required String label,
     required String desc,
     required IconData icon,
-    required double fare,
   }) {
     final selected = _selectedType == type;
     return InkWell(
@@ -605,19 +563,7 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
               style: AppTextStyles.labelSmall,
             ),
             const SizedBox(height: AppSpacing.sm),
-            if (_loadingFare[type] == true && _fareResponses[type] == null)
-              const SizedBox(
-                height: 18,
-                width: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Text(
-                '${fare.roundToDouble()} جنيه',
-                style: AppTextStyles.titleMedium?.copyWith(
-                  color: AppColors.primaryGreen,
-                ),
-              ),
+            _buildFareLabel(type),
           ],
         ),
       ),

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
+import 'package:wasalny_rider/core/utils/price_formatter.dart';
 import 'package:wasalny_rider/features/chat/chat_screen.dart';
 import 'package:wasalny_rider/features/trip/trip_rating_screen.dart';
 
@@ -87,7 +88,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     dropoffAddress: 'مطار القاهرة الدولي',
     rideType: 'economy',
     payment: 'cash',
-    fare: 40,
+    // لا نعرض سعراً وهمياً عند فتح الشاشة مباشرة — 0 تعني «غير محدد».
+    fare: 0,
     driverName: 'أحمد محمد',
     driverCar: 'Hyundai Elantra · ١٢٣٤ أ ب ج',
   );
@@ -420,7 +422,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                   const SizedBox(width: AppSpacing.sm),
                   _infoChip(
                     Icons.price_check_rounded,
-                    '${_args.fare.round()} جنيه',
+                    _args.fare > 0 ? formatEGP(_args.fare) : 'غير محدد',
                   ),
                 ],
               ),

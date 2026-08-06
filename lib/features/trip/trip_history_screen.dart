@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
+import 'package:wasalny_rider/core/utils/logger.dart';
+import 'package:wasalny_rider/core/utils/price_formatter.dart';
 
 /// Trip history screen with two tabs: upcoming trips and past trips.
 ///
-/// Uses an active [TabBar] and dynamic list cards. The sample data below can
-/// later be replaced with `ApiService.instance.getRideHistory()`.
+/// Data comes from the backend `GET /rides/history` — the displayed prices
+/// are the real backend `price` values, not local samples.
 class TripHistoryScreen extends StatefulWidget {
   const TripHistoryScreen({super.key});
 
@@ -14,58 +17,131 @@ class TripHistoryScreen extends StatefulWidget {
 }
 
 class _TripHistoryScreenState extends State<TripHistoryScreen> {
-  // Sample data — replace with ApiService.getRideHistory() when the backend
-  // response shape is finalised.
-  final List<_Trip> _upcoming = const [
-    _Trip(
-      destination: 'مطار القاهرة الدولي',
-      date: 'الجمعة ٢ أغسطس',
-      time: '١٨:٠٠',
-      fare: 75,
-      status: 'مؤكدة',
-    ),
-    _Trip(
-      destination: 'وسط البلد',
-      date: 'السبت ٣ أغسطس',
-      time: '٠٩:٣٠',
-      fare: 35,
-      status: 'في الانتظار',
-    ),
+  static const List<String> _arMonths = [
+    'يناير',
+    'فبراير',
+    'مارس',
+    'أبريل',
+    'مايو',
+    'يونيو',
+    'يوليو',
+    'أغسطس',
+    'سبتمبر',
+    'أكتوبر',
+    'نوفمبر',
+    'ديسمبر',
   ];
 
-  final List<_Trip> _past = const [
-    _Trip(
-      destination: 'التجمع الخامس',
-      date: 'الخميس ١ أغسطس',
-      time: '١٤:٢٠',
-      fare: 55,
-      status: 'مكتملة',
-      rating: 5,
-    ),
-    _Trip(
-      destination: 'مدينة نصر',
-      date: 'الأربعاء ٣١ يوليو',
-      time: '١٠:٠٥',
-      fare: 40,
-      status: 'مكتملة',
-      rating: 4,
-    ),
-    _Trip(
-      destination: 'المعادي',
-      date: 'الثلاثاء ٣٠ يوليو',
-      time: '١٩:٤٥',
-      fare: 60,
-      status: 'مكتملة',
-      rating: 5,
-    ),
-    _Trip(
-      destination: 'الدقي',
-      date: 'الإثنين ٢٩ يوليو',
-      time: '٠٨:١٥',
-      fare: 30,
-      status: 'ملغاة',
-    ),
-  ];
+  List<_Trip> _upcoming = const [];
+  List<_Trip> _past = const [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final resp = await ApiService.instance.getRideHistory();
+      final rides = resp['rides'];
+      final upcoming = <_Trip>[];
+      final past = <_Trip>[];
+      if (rides is List) {
+        for (final item in rides) {
+          if (item is! Map) continue;
+          final trip = _tripFromMap(item);
+          if (_isUpcoming(trip.status)) {
+            upcoming.add(trip);
+          } else {
+            past.add(trip);
+          }
+        }
+      }
+      // التاريخ لا يعيد الرحلة الجارية (PENDING/ACCEPTED/...) — نجلبها من
+      // `/rides/current` حتى تظهر في تبويب «الرحلات القادمة».
+      try {
+        final current = await ApiService.instance.getCurrentRide();
+        final ride = current['ride'];
+        if (ride is Map && ride['id'] != null) {
+          final trip = _tripFromMap(ride);
+          if (_isUpcoming(trip.status) &&
+              !upcoming.any((t) => t.id == trip.id)) {
+            upcoming.insert(0, trip);
+          }
+        }
+      } catch (e) {
+        logWarning('TripHistoryScreen', 'getCurrentRide failed: $e');
+      }
+      if (!mounted) return;
+      setState(() {
+        _upcoming = upcoming;
+        _past = past;
+        _loading = false;
+      });
+    } catch (e) {
+      logError('TripHistoryScreen', 'getRideHistory failed: $e', e);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'تعذر تحميل الرحلات. تحقق من اتصالك ثم أعد المحاولة.';
+      });
+    }
+  }
+
+  /// يحوّل كائن رحلة من الـ Backend إلى [_Trip] (يتعامل مع نفس الحقول
+  /// سواء جاءت من `/rides/history` أو `/rides/current`).
+  _Trip _tripFromMap(Map<dynamic, dynamic> item) {
+    final status = (item['status'] as String?) ?? '';
+    final dest = item['destinationAddress'];
+    final id = item['id'];
+    return _Trip(
+      id: id is String && id.isNotEmpty ? id : '',
+      destination: dest is String && dest.isNotEmpty
+          ? dest
+          : 'وجهة غير محددة',
+      dateTime: _formatDate(_parseDate(item['createdAt'])),
+      fare: parsePrice(item['price']),
+      status: status,
+    );
+  }
+
+  static DateTime? _parseDate(Object? value) {
+    if (value is String && value.isNotEmpty) {
+      return DateTime.tryParse(value);
+    }
+    return null;
+  }
+
+  /// هل الرحلة قادمة (قيد التنفيذ) أم سابقة (مكتملة/ملغاة)؟
+  static bool _isUpcoming(String status) {
+    switch (status) {
+      case 'COMPLETED':
+      case 'CANCELLED':
+      case 'CANCELED':
+      case 'REJECTED':
+        return false;
+      default:
+        // PENDING, ACCEPTED, ASSIGNED, ARRIVED, STARTED, ...
+        return true;
+    }
+  }
+
+  /// تنسيق التاريخ إلى شكل عربي واضح، مثل: «6 أغسطس 2026 · 17:09».
+  static String _formatDate(DateTime? dt) {
+    if (dt == null) return '—';
+    final local = dt.toLocal();
+    final m = _arMonths[local.month - 1];
+    final h = local.hour.toString().padLeft(2, '0');
+    final min = local.minute.toString().padLeft(2, '0');
+    return '${local.day} $m ${local.year} · $h:$min';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -86,9 +162,39 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
             ],
           ),
         ),
-        body: TabBarView(children: [_buildList(_upcoming), _buildList(_past)]),
+        body: _buildBody(),
       ),
     );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMedium,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              FilledButton.icon(
+                onPressed: _loadHistory,
+                icon: const Icon(Icons.refresh),
+                label: const Text('إعادة المحاولة'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return TabBarView(children: [_buildList(_upcoming), _buildList(_past)]);
   }
 
   Widget _buildList(List<_Trip> trips) {
@@ -106,26 +212,35 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
 
 class _Trip {
   const _Trip({
+    required this.id,
     required this.destination,
-    required this.date,
-    required this.time,
+    required this.dateTime,
     required this.fare,
     required this.status,
-    this.rating,
   });
 
+  final String id;
   final String destination;
-  final String date;
-  final String time;
+  final String dateTime;
   final double fare;
   final String status;
-  final int? rating;
 }
 
 class _TripCard extends StatelessWidget {
   const _TripCard({required this.trip});
 
   final _Trip trip;
+
+  /// عنوان عربي لحالة الرحلة القادم من الـ Backend.
+  String get _statusLabel => switch (trip.status) {
+    'COMPLETED' => 'مكتملة',
+    'CANCELLED' || 'CANCELED' => 'ملغاة',
+    'REJECTED' => 'مرفوضة',
+    'PENDING' => 'قيد الانتظار',
+    'ACCEPTED' || 'ASSIGNED' => 'تم تأكيدها',
+    'ARRIVED' || 'STARTED' => 'جارية',
+    _ => trip.status,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -156,24 +271,7 @@ class _TripCard extends StatelessWidget {
               children: [
                 Text(trip.destination, style: AppTextStyles.titleMedium),
                 const SizedBox(height: AppSpacing.xxs),
-                Text(
-                  '${trip.date} · ${trip.time}',
-                  style: AppTextStyles.bodySmall,
-                ),
-                if (trip.rating != null) ...[
-                  const SizedBox(height: AppSpacing.xxs),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.star_rounded,
-                        size: 16,
-                        color: AppColors.warning,
-                      ),
-                      const SizedBox(width: AppSpacing.xxs),
-                      Text('${trip.rating}', style: AppTextStyles.labelMedium),
-                    ],
-                  ),
-                ],
+                Text(trip.dateTime, style: AppTextStyles.bodySmall),
               ],
             ),
           ),
@@ -182,14 +280,14 @@ class _TripCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '${trip.fare} جنيه',
+                formatEGP(trip.fare),
                 style: AppTextStyles.titleSmall?.copyWith(
                   color: AppColors.primaryGreen,
                 ),
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                trip.status,
+                _statusLabel,
                 style: AppTextStyles.labelSmall?.copyWith(
                   color: _statusColor(trip.status),
                 ),
@@ -203,10 +301,14 @@ class _TripCard extends StatelessWidget {
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'مكتملة':
+      case 'COMPLETED':
         return AppColors.primaryGreen;
-      case 'ملغاة':
+      case 'CANCELLED':
+      case 'CANCELED':
+      case 'REJECTED':
         return AppColors.error;
+      case 'PENDING':
+        return AppColors.warning;
       default:
         return AppColors.info;
     }
