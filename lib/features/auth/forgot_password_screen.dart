@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:wasalny_rider/core/network/api_exceptions.dart';
 import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
+import 'package:wasalny_rider/features/auth/reset_password_screen.dart';
 
 /// شاشة «نسيت كلمة المرور؟»
 ///
@@ -57,11 +58,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   /// الانتقال إلى شاشة تعيين كلمة المرور الجديدة.
+  ///
+  /// نمرر أيضاً رمز التطوير (إن وُجد) ليُعبأ تلقائياً في حقل الرمز أثناء
+  /// الاختبار في بيئة التطوير.
   void _goToResetPassword() {
     Navigator.pushNamed(
       context,
       '/reset-password',
-      arguments: _emailController.text.trim(),
+      arguments: ResetPasswordArgs(
+        email: _emailController.text.trim(),
+        devCode: _devCode,
+      ),
     );
   }
 

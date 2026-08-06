@@ -25,6 +25,10 @@ class _LoginScreenState extends State<LoginScreen>
   bool _isLoading = false;
   bool _obscurePassword = true;
 
+  /// «تذكرني» — عند التحديد تُحفظ الجلسة ويبقى المستخدم مسجلاً دخوله عند
+  /// إعادة فتح التطبيق؛ وعند إلغاء التحديد يُطلب تسجيل الدخول في كل مرة.
+  bool _rememberMe = true;
+
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -68,7 +72,7 @@ class _LoginScreenState extends State<LoginScreen>
 
     try {
       // 1. Sign in with Google → Firebase → Backend
-      await AuthService.instance.signInWithGoogle();
+      await AuthService.instance.signInWithGoogle(remember: _rememberMe);
       if (!mounted) return;
 
       // 2. Complete the shared post-auth flow → home
@@ -98,6 +102,7 @@ class _LoginScreenState extends State<LoginScreen>
       await ApiService.instance.loginWithEmailPassword(
         email: _emailController.text,
         password: _passwordController.text,
+        remember: _rememberMe,
       );
       if (!mounted) return;
       await _completePostAuth();
@@ -333,28 +338,33 @@ class _LoginScreenState extends State<LoginScreen>
                                       ? 'كلمة المرور 6 أحرف على الأقل'
                                       : null,
                                 ),
-                                // رابط نسيت كلمة المرور
-                                Align(
-                                  alignment: AlignmentDirectional.centerEnd,
-                                  child: TextButton(
-                                    onPressed: _isLoading
-                                        ? null
-                                        : _goToForgotPassword,
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: AppColors.primary,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: AppSpacing.sm,
-                                        vertical: AppSpacing.xs,
+                                // «تذكرني» + رابط نسيت كلمة المرور
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    _buildRememberMe(),
+                                    TextButton(
+                                      onPressed: _isLoading
+                                          ? null
+                                          : _goToForgotPassword,
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppColors.primary,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: AppSpacing.sm,
+                                          vertical: AppSpacing.xs,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'نسيت كلمة المرور؟',
+                                        style: AppTextStyles.bodyMedium
+                                            ?.copyWith(
+                                              color: AppColors.primary,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                       ),
                                     ),
-                                    child: Text(
-                                      'نسيت كلمة المرور؟',
-                                      style: AppTextStyles.bodyMedium?.copyWith(
-                                        color: AppColors.primary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -418,6 +428,41 @@ class _LoginScreenState extends State<LoginScreen>
       height: size,
       errorBuilder: (_, _, _) =>
           Icon(Icons.g_mobiledata, size: size + 4, color: _googleRed),
+    );
+  }
+
+  /// مربع «تذكرني» — يتحكم في حفظ الجلسة عبر [ApiService.saveToken]:
+  /// عند التحديد يبقى المستخدم مسجلاً دخوله بعد إعادة فتح التطبيق،
+  /// وعند إلغاء التحديد يلزم تسجيل الدخول في كل مرة.
+  Widget _buildRememberMe() {
+    return InkWell(
+      onTap: _isLoading
+          ? null
+          : () => setState(() => _rememberMe = !_rememberMe),
+      borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 40,
+            width: 40,
+            child: Checkbox(
+              value: _rememberMe,
+              onChanged: _isLoading
+                  ? null
+                  : (v) => setState(() => _rememberMe = v ?? true),
+              activeColor: AppColors.primary,
+              checkColor: AppColors.textOnPrimary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          Text('تذكرني', style: AppTextStyles.bodyMedium),
+        ],
+      ),
     );
   }
 

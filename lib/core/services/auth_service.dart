@@ -70,7 +70,10 @@ class AuthService {
   /// reliably return an `idToken` (see `google_sign_in_web`). Instead, we use
   /// `FirebaseAuth.signInWithPopup()` which correctly uses the Google
   /// Identity Services (GIS) library and returns the idToken.
-  Future<Map<String, dynamic>> signInWithGoogle() async {
+  ///
+  /// [remember] controls whether the app JWT is persisted (see
+  /// [ApiService.saveToken]) so the session survives app restarts.
+  Future<Map<String, dynamic>> signInWithGoogle({bool remember = true}) async {
     try {
       String idToken;
       String displayName;
@@ -171,6 +174,7 @@ class AuthService {
         name: displayName,
         email: email,
         photoUrl: photoUrl,
+        remember: remember,
       );
 
       return {
@@ -215,12 +219,14 @@ class AuthService {
   /// The backend returns a JWT that [ApiService] stores and uses for
   /// all subsequent authenticated requests.
   Future<Map<String, dynamic>> exchangeFirebaseToken(
-    String firebaseIdToken,
-  ) async {
+    String firebaseIdToken, {
+    bool remember = true,
+  }) async {
     logInfo('AuthService', 'Exchanging Firebase token for app JWT…');
     try {
       final result = await ApiService.instance.signInWithFirebase(
         firebaseIdToken,
+        remember: remember,
       );
       logInfo('AuthService', '✅ Firebase token exchange succeeded');
       return result;

@@ -70,8 +70,19 @@ class MyApp extends StatelessWidget {
       case '/forgot-password':
         return RouteTransitions.slideUp(const ForgotPasswordScreen());
       case '/reset-password':
+        // الوسائط إما ResetPasswordArgs (من شاشة forgot-password) أو
+        // String قديمة (البريد فقط) للحفاظ على التوافق.
+        String? email;
+        String? devCode;
+        final args = settings.arguments;
+        if (args is ResetPasswordArgs) {
+          email = args.email;
+          devCode = args.devCode;
+        } else if (args is String) {
+          email = args;
+        }
         return RouteTransitions.slideUp(
-          ResetPasswordScreen(email: settings.arguments as String?),
+          ResetPasswordScreen(email: email, devCode: devCode),
         );
       case '/home':
         return RouteTransitions.slideHorizontal(const RiderHomeScreen());

@@ -5,16 +5,32 @@ import 'package:wasalny_rider/core/network/api_exceptions.dart';
 import 'package:wasalny_rider/core/services/api_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 
+/// وسائط الانتقال إلى شاشة إعادة تعيين كلمة المرور.
+class ResetPasswordArgs {
+  const ResetPasswordArgs({this.email, this.devCode});
+
+  /// البريد الإلكتروني الذي طلب إعادة التعيين منه (اختياري).
+  final String? email;
+
+  /// رمز إعادة التعيين الذي أعاده الخادم في بيئة التطوير (اختياري) —
+  /// يُعبأ تلقائياً في حقل الرمز أثناء الاختبار.
+  final String? devCode;
+}
+
 /// شاشة تعيين كلمة مرور جديدة بعد استلام رمز إعادة التعيين.
 ///
 /// - يُدخل المستخدم الرمز الذي وصله (code) + كلمة مرور جديدة (مع تأكيدها).
 /// - نرسلها عبر `POST /auth/reset-password`.
 /// - عند النجاح تظهر رسالة تأكيد ثم نعود لشاشة تسجيل الدخول.
 class ResetPasswordScreen extends StatefulWidget {
-  const ResetPasswordScreen({super.key, this.email});
+  const ResetPasswordScreen({super.key, this.email, this.devCode});
 
   /// البريد الإلكتروني (اختياري) — يُستخدم للعرض فقط في هذه الشاشة.
   final String? email;
+
+  /// رمز إعادة التعيين (اختياري) — إذا وُجد يُعبأ تلقائياً في حقل الرمز
+  /// (مفيد أثناء الاختبار في بيئة التطوير حيث يعيد الخادم `devCode`).
+  final String? devCode;
 
   @override
   State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
@@ -30,6 +46,16 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _codeController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // في بيئة التطوير، إذا أعاد الخادم رمزاً (devCode) نعبّئه تلقائياً.
+    final devCode = widget.devCode;
+    if (devCode != null && devCode.isNotEmpty) {
+      _codeController.text = devCode;
+    }
+  }
 
   @override
   void dispose() {
@@ -62,9 +88,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   }
 
   /// العودة إلى شاشة تسجيل الدخول بعد نجاح إعادة التعيين.
+  ///
+  /// نستبدل كل الـ stack (splash + forgot + reset) بشاشة تسجيل الدخول
+  /// مباشرة، فلا تبقى شاشات قديمة خلفها ولا نحتاج `popUntil` مسبقاً.
   void _goToLogin() {
-    Navigator.of(context).popUntil((route) => route.isFirst);
-    Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (_) => false);
   }
 
   String _mapError(Object error) {
@@ -127,6 +155,40 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             textAlign: TextAlign.center,
             style: AppTextStyles.labelMedium?.copyWith(
               color: AppColors.primary,
+            ),
+          ),
+        ],
+        if (widget.devCode != null && widget.devCode!.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.successContainer.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: AppColors.success,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Flexible(
+                  child: Text(
+                    'تم تعبئة رمز التطوير تلقائياً',
+                    textAlign: TextAlign.center,
+                    style: AppTextStyles.labelMedium?.copyWith(
+                      color: AppColors.success,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

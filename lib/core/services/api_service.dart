@@ -35,9 +35,19 @@ class ApiService {
 
   // ── Token Management ─────────────────────────────────
 
-  void saveToken(String token) {
+  /// Stores the JWT in memory and, when [remember] is `true`, persists it to
+  /// local storage so the session survives app restarts (auto-login).
+  ///
+  /// When [remember] is `false` the token is kept **in memory only** and any
+  /// previously persisted token is cleared — the user must sign in again on
+  /// the next app start (used by the «تذكرني» checkbox on the login screen).
+  void saveToken(String token, {bool remember = true}) {
     _token = token;
-    _persistToken(token);
+    if (remember) {
+      _persistToken(token);
+    } else {
+      _clearPersistedToken();
+    }
   }
 
   /// Persists the JWT to local storage (fire-and-forget, never blocks UI).
@@ -132,6 +142,7 @@ class ApiService {
     String? name,
     String? email,
     String? photoUrl,
+    bool remember = true,
   }) async {
     if (!backendEnabled) return <String, dynamic>{'success': true};
     final response = await _dio.post(
@@ -145,7 +156,7 @@ class ApiService {
     );
     final result = response.data as Map<String, dynamic>;
     if (result['token'] != null) {
-      saveToken(result['token'] as String);
+      saveToken(result['token'] as String, remember: remember);
     }
     return result;
   }
@@ -157,6 +168,7 @@ class ApiService {
   Future<Map<String, dynamic>> loginWithEmailPassword({
     required String email,
     required String password,
+    bool remember = true,
   }) async {
     if (!backendEnabled) return <String, dynamic>{'success': true};
     final response = await _dio.post(
@@ -165,7 +177,7 @@ class ApiService {
     );
     final result = response.data as Map<String, dynamic>;
     final token = _extractToken(result);
-    if (token != null) saveToken(token);
+    if (token != null) saveToken(token, remember: remember);
     return result;
   }
 
@@ -179,6 +191,7 @@ class ApiService {
     required String password,
     required String firstName,
     required String lastName,
+    bool remember = true,
   }) async {
     if (!backendEnabled) return <String, dynamic>{'success': true};
     final response = await _dio.post(
@@ -192,7 +205,7 @@ class ApiService {
     );
     final result = response.data as Map<String, dynamic>;
     final token = _extractToken(result);
-    if (token != null) saveToken(token);
+    if (token != null) saveToken(token, remember: remember);
     return result;
   }
 
