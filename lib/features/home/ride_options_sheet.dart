@@ -19,6 +19,10 @@ typedef RideSelection = ({
   double dropoffLat,
   double dropoffLng,
   String dropoffAddress,
+
+  /// `true` عند الضغط على «عرض على الخريطة» — تُفتح الخريطة الرئيسية لمعاينة
+  /// المسار (نقطة الالتقاط → الوجهة) بدلاً من تأكيد الطلب.
+  bool showOnMap,
 });
 
 /// Bottom sheet where the passenger searches for a real destination (via
@@ -33,12 +37,21 @@ class RideOptionsSheet extends StatefulWidget {
     required this.pickupLat,
     required this.pickupLng,
     required this.pickupAddress,
+    this.initialDestination,
+    this.initialType = 'economy',
+    this.initialPayment = 'cash',
   });
 
   /// Rider's current location (used for the fare estimate).
   final double pickupLat;
   final double pickupLng;
   final String pickupAddress;
+
+  /// عند العودة من معاينة الخريطة: وجهة محفوظة تُستعاد مع نوع الرحلة وطريقة
+  /// الدفع حتى لا يضيع اختيار المستخدم عند متابعة تأكيد الطلب.
+  final PlaceResult? initialDestination;
+  final String initialType;
+  final String initialPayment;
 
   @override
   State<RideOptionsSheet> createState() => _RideOptionsSheetState();
@@ -49,6 +62,10 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       'economy'; // 'economy' | 'comfort' | 'premium' | 'motorcycle' | 'scooter'
   String _selectedPayment = 'cash'; // 'cash' | 'card'
   PlaceResult? _destination;
+
+  /// تتابع يزداد عند كل اختيار وجهة جديدة. يُستخدم لتجاهل نتائج جلب أسعار
+  /// قديمة (لوجهة سابقة) حتى لا نعرض سعراً لوجهة غير الحالية.
+  int _destinationSeq = 0;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -78,6 +95,9 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
   Future<void> _fetchFareForType(String type) async {
     // Avoid duplicate simultaneous fetches
     if (_loadingFare[type] == true) return;
+    // نلتقط رقم الوجهة الحالية: إذا تغيّرت الوجهة أثناء الجلب نتجاهل النتيجة
+    // القديمة (لا نعرض سعراً لوجهة سابقة).
+    final seq = _destinationSeq;
     setState(() => _loadingFare[type] = true);
     try {
       final resp = await ApiService.instance.getRideFare(
@@ -87,21 +107,22 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
         destLng: _destination!.lng,
         rideType: type,
       );
-      if (!mounted) return;
+      if (!mounted || seq != _destinationSeq) return;
       setState(() {
         _fareResponses[type] = resp;
         _fareFailed.remove(type);
       });
     } catch (e) {
       logWarning('RideOptionsSheet', 'getRideFare failed for $type: $e');
-      if (!mounted) return;
+      if (!mounted || seq != _destinationSeq) return;
       // لا نعرض سعراً وهمياً عند فشل الشبكة — نعرض «غير متاح» فقط.
       setState(() {
         _fareResponses[type] = null;
         _fareFailed.add(type);
       });
     } finally {
-      if (mounted) {
+      // لا نمسح حالة تحميل جلبٍ أحدث لنفس النوع بعد تغيير الوجهة.
+      if (mounted && seq == _destinationSeq) {
         setState(() => _loadingFare[type] = false);
       }
     }
@@ -145,6 +166,12 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       _destination = place;
       _results = const [];
       _searchController.text = place.displayName;
+      // صفّر حالة الأسعار من الوجهة السابقة فور اختيار وجهة جديدة — لا نعرض
+      // أسعاراً قديمة أثناء جلب أسعار الوجهة الحالية من الـ Backend.
+      _destinationSeq++;
+      _fareResponses.clear();
+      _fareFailed.clear();
+      _loadingFare.clear();
     });
     _searchFocus.unfocus();
     // Fetch fares for all available types when a destination is selected
@@ -184,7 +211,44 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
       dropoffLat: dest.lat,
       dropoffLng: dest.lng,
       dropoffAddress: dest.displayName,
+      showOnMap: false,
     ));
+  }
+
+  /// يغلق الشيت ويفتح الخريطة الرئيسية لمعاينة المسار (نقطة الالتقاط → الوجهة)
+  /// دون تأكيد الطلب. الشاشة الرئيسية تحفظ الوجهة/النوع/الدفع للعودة لاحقاً.
+  void _showOnMap() {
+    final dest = _destination;
+    if (dest == null) return;
+    Navigator.of(context).pop((
+      type: _selectedType,
+      payment: _selectedPayment,
+      fare: _getDisplayedFare(_selectedType),
+      pickupLat: widget.pickupLat,
+      pickupLng: widget.pickupLng,
+      pickupAddress: widget.pickupAddress,
+      dropoffLat: dest.lat,
+      dropoffLng: dest.lng,
+      dropoffAddress: dest.displayName,
+      showOnMap: true,
+    ));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // عند العودة من معاينة الخريطة (وجهة محفوظة): استعد الاختيار وأعد جلب
+    // الأسعار من الـ Backend فقط (لا نعرض سعراً وهمياً أبداً).
+    final initial = widget.initialDestination;
+    if (initial != null) {
+      _destination = initial;
+      _searchController.text = initial.displayName;
+      _selectedType = widget.initialType;
+      _selectedPayment = widget.initialPayment;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetchAllFares();
+      });
+    }
   }
 
   @override
@@ -338,9 +402,28 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('التكلفة التقديرية', style: AppTextStyles.bodyMedium),
-                _buildFareLabel(_selectedType),
+                _buildEstimateLabel(),
               ],
             ),
+            // معاينة المسار على الخريطة الرئيسية (تظهر بعد اختيار الوجهة فقط)
+            if (_destination != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              SizedBox(
+                height: AppSpacing.buttonHeightMd,
+                child: OutlinedButton.icon(
+                  onPressed: _showOnMap,
+                  icon: const Icon(Icons.route_rounded),
+                  label: const Text('عرض على الخريطة'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primaryGreen,
+                    side: const BorderSide(color: AppColors.primaryGreen),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                    ),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.xl),
 
             // Confirm button
@@ -482,6 +565,19 @@ class _RideOptionsSheetState extends State<RideOptionsSheet> {
         ),
       ),
     );
+  }
+
+  /// عنوان «التكلفة التقديرية» للنوع المحدد: قبل اختيار الوجهة نطلب اختيارها
+  /// أولاً بدلاً من عرض أي رقم. بعد اختيارها نعرض سعر الـ Backend أو حالة
+  /// الجلب/الفشل.
+  Widget _buildEstimateLabel() {
+    if (_destination == null) {
+      return Text(
+        'اختر الوجهة أولاً',
+        style: AppTextStyles.bodySmall?.copyWith(color: AppColors.textMuted),
+      );
+    }
+    return _buildFareLabel(_selectedType);
   }
 
   /// نص السعر لنوع رحلة معيّن: يعرض سعر الـ Backend، أو مؤشر تحميل، أو

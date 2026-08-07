@@ -53,6 +53,18 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   DateTime? _lastReverseGeocodeAt;
   osm.GeoPoint? _lastReverseGeocodePoint;
 
+  /// اختيارات الرحلة المحفوظة بعد إغلاق الشيت (تُستخدم عند معاينة المسار على
+  /// الخريطة ثم العودة لتأكيد الطلب — لا نضيع اختيار الوجهة/النوع/الدفع).
+  PlaceResult? _pendingDestination;
+  String _pendingType = 'economy';
+  String _pendingPayment = 'cash';
+
+  /// هل نعرض حالياً معاينة المسار (زر «عرض على الخريطة») مع إجراءات العودة؟
+  bool _showPreviewActions = false;
+
+  /// نقطة marker الوجهة المرسومة أثناء المعاينة (لإزالتها عند الإلغاء).
+  osm.GeoPoint? _destinationMarkerPoint;
+
   @override
   void initState() {
     super.initState();
@@ -505,9 +517,23 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
             ? _pickupAddress
             : '${current.latitude.toStringAsFixed(4)}, '
                   '${current.longitude.toStringAsFixed(4)}',
+        // عند العودة من معاينة الخريطة نستعيد الوجهة/النوع/الدفع المحفوظة.
+        initialDestination: _pendingDestination,
+        initialType: _pendingType,
+        initialPayment: _pendingPayment,
       ),
     );
     if (result == null || !mounted) return;
+
+    // «عرض على الخريطة»: نرسم المسار على الخريطة الرئيسية ونعود لاحقاً
+    // لتأكيد الطلب — لا نرسل أي طلب الآن.
+    if (result.showOnMap) {
+      await _previewRouteOnMap(result);
+      return;
+    }
+
+    // تأكيد الطلب: نخفّي أي معاينة مسار ظاهرة ثم نرسل الطلب الحقيقي.
+    await _clearPreview();
 
     // Send a REAL ride request to the backend. On failure we stop — there is
     // no simulated fallback anymore.
@@ -587,6 +613,205 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         ),
       );
     }
+  }
+
+  /// يرسم معاينة المسار على الخريطة الرئيسية: marker للوجهة + خط (route) من
+  /// نقطة الالتقاط إلى الوجهة، ويحرّك الكاميرا لتظهر النقطتان. يحفظ اختيار
+  /// الوجهة/النوع/الدفع للعودة لتأكيد الطلب دون فقدانه.
+  Future<void> _previewRouteOnMap(RideSelection result) async {
+    final pickup = osm.GeoPoint(
+      latitude: result.pickupLat,
+      longitude: result.pickupLng,
+    );
+    final dest = osm.GeoPoint(
+      latitude: result.dropoffLat,
+      longitude: result.dropoffLng,
+    );
+
+    // إزالة أي معاينة سابقة (marker/خط) قبل رسم معاينة جديدة — حتى لا تتراكم
+    // markers مكررة للوجهة على الخريطة عند الضغط على «عرض على الخريطة» مراراً.
+    final prevDest = _destinationMarkerPoint;
+    if (prevDest != null) {
+      try {
+        await mapController.removeMarker(prevDest);
+        await mapController.clearAllRoads();
+      } catch (e) {
+        logWarning('RiderHomeScreen', 'clear previous preview failed: $e');
+      }
+      _destinationMarkerPoint = null;
+    }
+
+    setState(() {
+      _pendingDestination = PlaceResult(
+        displayName: result.dropoffAddress,
+        lat: result.dropoffLat,
+        lng: result.dropoffLng,
+      );
+      _pendingType = result.type;
+      _pendingPayment = result.payment;
+      _showPreviewActions = true;
+      // لا نتابع الراكب أثناء المعاينة حتى تبقى الكاميرا على النقطتين.
+      _followUser = false;
+    });
+
+    if (!_mapReady) return;
+
+    // Marker للوجهة.
+    try {
+      await mapController.addMarker(
+        dest,
+        markerIcon: const osm.MarkerIcon(
+          icon: Icon(Icons.place_rounded, color: AppColors.error, size: 40),
+        ),
+      );
+      _destinationMarkerPoint = dest;
+    } catch (e) {
+      logWarning('RiderHomeScreen', 'destination marker failed: $e');
+    }
+
+    // رسم المسار عبر OSRM، وبديل بخط مستقيم إذا فشل التوجيه.
+    try {
+      await mapController.drawRoad(
+        pickup,
+        dest,
+        roadType: osm.RoadType.car,
+        roadOption: const osm.RoadOption(
+          roadColor: AppColors.primaryGreen,
+          roadWidth: 5,
+        ),
+      );
+    } catch (e) {
+      logWarning(
+        'RiderHomeScreen',
+        'drawRoad failed (straight-line fallback): $e',
+      );
+      try {
+        await mapController.drawRoadManually(
+          [pickup, dest],
+          const osm.RoadOption(
+            roadColor: AppColors.primaryGreen,
+            roadWidth: 4,
+            isDotted: true,
+          ),
+        );
+      } catch (e2) {
+        logWarning('RiderHomeScreen', 'drawRoadManually fallback failed: $e2');
+      }
+    }
+
+    // كاميرا تُظهر نقطة الالتقاط والوجهة معاً.
+    _lastProgrammaticMove = DateTime.now();
+    try {
+      await mapController.zoomToBoundingBox(
+        osm.BoundingBox.fromGeoPoints([pickup, dest]),
+        paddinInPixel: 80,
+      );
+    } catch (e) {
+      logWarning('RiderHomeScreen', 'zoomToBoundingBox failed: $e');
+      _lastProgrammaticMove = DateTime.now();
+      try {
+        await mapController.moveTo(dest, animate: true);
+      } catch (e2) {
+        logWarning('RiderHomeScreen', 'moveTo failed: $e2');
+      }
+    }
+  }
+
+  /// يزيل معاينة المسار (marker الوجهة + الخط) ويعيد الخريطة للحالة العادية.
+  Future<void> _clearPreview() async {
+    if (_showPreviewActions && mounted) {
+      setState(() => _showPreviewActions = false);
+    }
+    if (!mounted) return;
+    try {
+      final destPoint = _destinationMarkerPoint;
+      if (destPoint != null) {
+        await mapController.removeMarker(destPoint);
+      }
+      await mapController.clearAllRoads();
+    } catch (e) {
+      logWarning('RiderHomeScreen', 'Failed to clear preview: $e');
+    }
+    _destinationMarkerPoint = null;
+  }
+
+  /// يعيد فتح شيت اختيار الرحلة مع الوجهة/النوع/الدفع المحفوظة بعد المعاينة.
+  Future<void> _reopenRideOptions() => _openRideOptions();
+
+  /// لوحة معاينة المسار (تظهر بعد «عرض على الخريطة»): تعرض الوجهة وزرّي
+  /// «متابعة تأكيد الطلب» و«إلغاء المعاينة» حتى لا يضيع اختيار المستخدم.
+  Widget _buildPreviewActions() {
+    final dest = _pendingDestination;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.place_rounded,
+                color: AppColors.primaryGreen,
+                size: AppSpacing.iconMd,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  dest?.displayName ?? 'الوجهة المحددة',
+                  style: AppTextStyles.bodySmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: AppSpacing.buttonHeightLg,
+                child: FilledButton.icon(
+                  onPressed: _reopenRideOptions,
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('متابعة تأكيد الطلب'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primaryGreen,
+                    foregroundColor: AppColors.textOnPrimary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            SizedBox(
+              width: AppSpacing.buttonHeightLg,
+              height: AppSpacing.buttonHeightLg,
+              child: OutlinedButton(
+                onPressed: _clearPreview,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textPrimary,
+                  side: const BorderSide(color: AppColors.border),
+                  padding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+                  ),
+                ),
+                child: const Icon(Icons.close_rounded),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   /// Extracts the ride id from a `POST /rides/request` response, supporting
@@ -770,79 +995,88 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                   ],
                 ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Location info (when available)
-                  if (_currentPosition != null)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(
-                          AppSpacing.radiusMd,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.location_on_rounded,
-                            color: AppColors.primary,
-                            size: AppSpacing.iconMd,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              _pickupAddress.isNotEmpty
-                                  ? 'موقعك الحالي: $_pickupAddress'
-                                  : 'موقعك الحالي: ${_currentPosition!.latitude.toStringAsFixed(4)}, '
-                                        '${_currentPosition!.longitude.toStringAsFixed(4)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                              overflow: TextOverflow.ellipsis,
+              child: _showPreviewActions
+                  ? _buildPreviewActions()
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Location info (when available)
+                        if (_currentPosition != null)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(AppSpacing.md),
+                            margin: const EdgeInsets.only(
+                              bottom: AppSpacing.lg,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(
+                                AppSpacing.radiusMd,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.location_on_rounded,
+                                  color: AppColors.primary,
+                                  size: AppSpacing.iconMd,
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  child: Text(
+                                    _pickupAddress.isNotEmpty
+                                        ? 'موقعك الحالي: $_pickupAddress'
+                                        : 'موقعك الحالي: ${_currentPosition!.latitude.toStringAsFixed(4)}, '
+                                              '${_currentPosition!.longitude.toStringAsFixed(4)}',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
 
-                  // Request Ride button + recenter
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: AppSpacing.buttonHeightLg,
-                          child: ElevatedButton.icon(
-                            onPressed: _requestRide,
-                            icon: const Icon(Icons.taxi_alert_rounded),
-                            label: Text(
-                              'اطلب رحلة',
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(color: AppColors.textOnPrimary),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: AppColors.textOnPrimary,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  AppSpacing.radiusLg,
+                        // Request Ride button + recenter
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: AppSpacing.buttonHeightLg,
+                                child: ElevatedButton.icon(
+                                  onPressed: _requestRide,
+                                  icon: const Icon(Icons.taxi_alert_rounded),
+                                  label: Text(
+                                    'اطلب رحلة',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          color: AppColors.textOnPrimary,
+                                        ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    foregroundColor: AppColors.textOnPrimary,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        AppSpacing.radiusLg,
+                                      ),
+                                    ),
+                                    elevation: 4,
+                                    shadowColor: AppColors.primaryDark
+                                        .withValues(alpha: 0.5),
+                                  ),
                                 ),
                               ),
-                              elevation: 4,
-                              shadowColor: AppColors.primaryDark.withValues(
-                                alpha: 0.5,
-                              ),
                             ),
-                          ),
+                            const SizedBox(width: AppSpacing.md),
+                            _recenterButton(),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      _recenterButton(),
-                    ],
-                  ),
-                ],
-              ),
+                      ],
+                    ),
             ),
           ),
 
