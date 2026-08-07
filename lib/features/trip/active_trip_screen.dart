@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart' as osm;
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:wasalny_rider/core/services/socket_service.dart';
 import 'package:wasalny_rider/core/theme/app_theme.dart';
 import 'package:wasalny_rider/core/utils/logger.dart';
 import 'package:wasalny_rider/core/utils/price_formatter.dart';
@@ -127,11 +128,18 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
 
   bool _mapReady = false;
 
-  // Simulated driver animation
+  // Driver marker — يُحرَّك فقط من موقع الكابتن الحقيقي (السوكيت).
   Timer? _driverTimer;
   List<osm.GeoPoint> _route = const [];
-  int _routeIndex = 0;
   osm.GeoPoint? _driverPoint;
+  osm.GeoPoint? _pendingPoint;
+  bool _hasRealLocation = false;
+
+  /// ملاحظة حالة الرحلة اللحظية (وصل الكابتن / بدأت الرحلة).
+  String _statusNote = '';
+
+  /// يمنع التنقل المزدوج لشاشة التقييم عند تكرار حدث `completed`.
+  bool _completing = false;
 
   @override
   void initState() {
@@ -140,6 +148,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _elapsedSeconds++);
     });
+    _initRideSocket();
     mapController = osm.MapController.withPosition(
       initPosition: osm.GeoPoint(
         latitude: _args.pickupLat,
@@ -148,10 +157,32 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     );
   }
 
+  /// ينضم لغرفة `ride:{rideId}` ويستمع لموقع الكابتن وحالة الرحلة الحقيقيين
+  /// من الباك إند — بديل كامل للرسوم المتحركة الوهمية.
+  void _initRideSocket() {
+    final rideId = _args.rideId;
+    if (rideId != null && rideId.isNotEmpty) {
+      SocketService().joinRide(rideId);
+    }
+    SocketService().onDriverLocationUpdate = _onDriverLocationUpdate;
+    SocketService().onRideStatusChanged = _onRideStatusChanged;
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
     _driverTimer?.cancel();
+    final socket = SocketService();
+    final rideId = _args.rideId;
+    if (rideId != null && rideId.isNotEmpty) {
+      socket.leaveRide(rideId);
+    }
+    if (socket.onDriverLocationUpdate == _onDriverLocationUpdate) {
+      socket.onDriverLocationUpdate = null;
+    }
+    if (socket.onRideStatusChanged == _onRideStatusChanged) {
+      socket.onRideStatusChanged = null;
+    }
     mapController.dispose();
     super.dispose();
   }
@@ -168,6 +199,12 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     if (!isReady) return;
     setState(() => _mapReady = true);
     await _buildRoute();
+    // لو وصل موقع كابتن حقيقي قبل جاهزية الخريطة، نطبّقه الآن.
+    final pending = _pendingPoint;
+    if (pending != null) {
+      _pendingPoint = null;
+      await _onDriverLocationUpdate(pending.latitude, pending.longitude);
+    }
   }
 
   /// Adds the pickup / drop-off markers, draws an interpolated route and
@@ -208,46 +245,70 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
         osm.RoadOption(roadColor: AppColors.primaryGreen, roadWidth: 5),
       );
 
-      // Driver marker starts a little off the pickup point
-      final driverStart = osm.GeoPoint(
-        latitude: _args.pickupLat + 0.0012,
-        longitude: _args.pickupLng + 0.0012,
-      );
-      await mapController.addMarker(
-        driverStart,
-        markerIcon: const osm.MarkerIcon(
-          icon: Icon(
-            Icons.local_taxi_rounded,
-            color: AppColors.primary,
-            size: 38,
-          ),
-        ),
-      );
-      _driverPoint = driverStart;
-      _routeIndex = 0;
-
-      _startDriverAnimation();
+      // لا نضيف علامة كابتن وهمية — تظهر علامة الكابتن الحقيقية فقط عند وصول
+      // أول حدث موقع من السوكيت (`ride.driver_location`). حتى ذلك الحين تعرض
+      // الواجهة «جاري تحديد موقع الكابتن».
     } catch (e) {
       logError('ActiveTripScreen', 'Failed to build route: $e', e);
     }
   }
 
-  /// Smoothly moves the driver marker along the interpolated route.
-  void _startDriverAnimation() {
-    _driverTimer?.cancel();
-    _driverTimer = Timer.periodic(const Duration(milliseconds: 400), (_) {
-      if (!mounted || _route.isEmpty || _driverPoint == null) return;
-      if (_routeIndex >= _route.length) {
-        _driverTimer?.cancel();
-        return;
+  /// يحرّك علامة الكابتن إلى موقعه الحقيقي المُرسل عبر السوكيت
+  /// (`ride.driver_location`). لا توجد أي محاكاة وهمية.
+  Future<void> _onDriverLocationUpdate(double lat, double lng) async {
+    if (!mounted) return;
+    final point = osm.GeoPoint(latitude: lat, longitude: lng);
+    if (!_mapReady) {
+      _pendingPoint = point;
+      return;
+    }
+    try {
+      if (_driverPoint == null) {
+        await mapController.addMarker(
+          point,
+          markerIcon: const osm.MarkerIcon(
+            icon: Icon(
+              Icons.local_taxi_rounded,
+              color: AppColors.primary,
+              size: 38,
+            ),
+          ),
+        );
+      } else {
+        await mapController.changeLocationMarker(
+          oldLocation: _driverPoint!,
+          newLocation: point,
+        );
       }
-      final next = _route[_routeIndex++];
-      mapController.changeLocationMarker(
-        oldLocation: _driverPoint!,
-        newLocation: next,
-      );
-      _driverPoint = next;
+    } catch (e) {
+      logWarning('ActiveTripScreen', 'driver marker update failed: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _driverPoint = point;
+      _hasRealLocation = true;
     });
+  }
+
+  /// معالجة حالة الرحلة اللحظية: وصل الكابتن / بدأت الرحلة / اكتملت.
+  void _onRideStatusChanged(String status, Map<String, dynamic> data) {
+    if (!mounted) return;
+    final s = status.trim().toLowerCase();
+    if (s == 'completed') {
+      _completeTrip();
+      return;
+    }
+    if (s == 'arrived') {
+      setState(() {
+        _statusNote = 'وصل الكابتن — في انتظارك عند نقطة الالتقاط';
+      });
+      return;
+    }
+    if (s == 'started') {
+      setState(() {
+        _statusNote = 'بدأت الرحلة — في الطريق إلى الوجهة';
+      });
+    }
   }
 
   /// Builds a gentle curved path between two points so the simulated route
@@ -270,6 +331,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   }
 
   void _completeTrip() {
+    if (_completing || !mounted) return;
+    _completing = true;
     Navigator.pushReplacementNamed(
       context,
       '/rating',
@@ -381,6 +444,37 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                 ),
               ),
             ),
+
+            // Live status note (real socket updates — no mock)
+            if (_statusNote.isNotEmpty ||
+                (_args.rideId != null && !_hasRealLocation)) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                child: Row(
+                  children: [
+                    Icon(
+                      _statusNote.isNotEmpty
+                          ? Icons.info_outline_rounded
+                          : Icons.my_location_rounded,
+                      color: AppColors.primary,
+                      size: 18,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        _statusNote.isNotEmpty
+                            ? _statusNote
+                            : 'جاري تحديد موقع الكابتن...',
+                        style: AppTextStyles.bodySmall?.copyWith(
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
 
             // Route card
             Container(

@@ -35,10 +35,10 @@ class ApiConstants {
   static const String walletTopUp = '/wallet/top-up';
 
   // ── Notifications endpoints ────────────────────────
-  /// قائمة إشعارات (مقيدة بدور CAPTAIN/DRIVER في الباك حالياً — الراكب
-  /// سيحصل على 403 حتى يُضاف endpoint خاص بالراكب).
-  static const String notificationsList = '/captain/notifications';
-  static const String notificationsMarkRead = '/captain/notifications/';
+  /// قائمة إشعارات الراكب — endpoint خاص بالراكب (`requireRole('RIDER')`)
+  /// تحت `/api/v1/notifications/rider`.
+  static const String notificationsList = '/notifications/rider';
+  static const String notificationsMarkRead = '/notifications/rider/';
   static const String notificationPreferences = '/notifications/preferences';
 
   // ── Upload endpoints ───────────────────────────────

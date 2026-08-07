@@ -181,6 +181,25 @@ class SocketService {
     log('📥 تم الانضمام إلى غرفة الرحلة: $tripId');
   }
 
+  /// الانضمام لغرفة `ride:{rideId}` لاستقبال أحداث الكابتن اللحظية
+  /// (`ride.driver_location` + `ride.status_update`) — يطابق `tracking:start`
+  /// في الباك إند.
+  void joinRide(String rideId) {
+    if (socket == null || !socket!.connected) {
+      log('⚠️ السوكيت غير متصل. لا يمكن الانضمام لغرفة الرحلة.');
+      return;
+    }
+    socket!.emit('tracking:start', {'rideId': rideId});
+    log('📥 تم الانضمام لغرفة الرحلة: $rideId');
+  }
+
+  /// مغادرة غرفة `ride:{rideId}` عند انتهاء الرحلة.
+  void leaveRide(String rideId) {
+    if (socket == null || !socket!.connected) return;
+    socket!.emit('tracking:stop', {'rideId': rideId});
+    log('📤 تم مغادرة غرفة الرحلة: $rideId');
+  }
+
   /// Send a chat message to the captain during an active trip.
   void sendMessage({
     required String tripId,

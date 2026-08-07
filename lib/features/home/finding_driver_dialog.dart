@@ -98,6 +98,9 @@ class _FindingDriverDialogState extends State<FindingDriverDialog>
     _pulse = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
 
     _ensureSocketConnected();
+    // الانضمام لغرفة `ride:{rideId}` لاستقبال أحداث حالة الرحلة اللحظية
+    // (`ride.accepted` / `ride.status_update`) — البولينغ يبقى احتياطياً.
+    SocketService().joinRide(widget.rideId);
     SocketService().onRideStatusChanged = _onRideStatusChanged;
     _startPolling();
   }
@@ -255,8 +258,9 @@ class _FindingDriverDialogState extends State<FindingDriverDialog>
   void dispose() {
     _pollTimer?.cancel();
     _controller.dispose();
-    // Only clear the socket callback if it still points at this dialog.
     final socket = SocketService();
+    socket.leaveRide(widget.rideId);
+    // Only clear the socket callback if it still points at this dialog.
     if (socket.onRideStatusChanged == _onRideStatusChanged) {
       socket.onRideStatusChanged = null;
     }
