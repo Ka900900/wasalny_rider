@@ -103,9 +103,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
     final id = item['id'];
     return _Trip(
       id: id is String && id.isNotEmpty ? id : '',
-      destination: dest is String && dest.isNotEmpty
-          ? dest
-          : 'وجهة غير محددة',
+      destination: dest is String && dest.isNotEmpty ? dest : 'وجهة غير محددة',
       dateTime: _formatDate(_parseDate(item['createdAt'])),
       fare: parsePrice(item['price']),
       status: status,
@@ -199,7 +197,16 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
 
   Widget _buildList(List<_Trip> trips) {
     if (trips.isEmpty) {
-      return const Center(child: Text('لا توجد رحلات'));
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.route_rounded, size: 48, color: AppColors.textMuted),
+            SizedBox(height: AppSpacing.md),
+            Text('لا توجد رحلات بعد'),
+          ],
+        ),
+      );
     }
     return ListView.separated(
       padding: const EdgeInsets.all(AppSpacing.lg),

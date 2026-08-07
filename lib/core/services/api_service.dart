@@ -411,6 +411,118 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
+  // ── Wallet Endpoints (راكب) ─────────────────────────
+
+  /// Get wallet balance — `GET /wallet/balance`.
+  ///
+  /// الرد يضم `balance` (نص/رقم) بالإضافة لحقول السياسة مثل `minTopUp`.
+  Future<Map<String, dynamic>> getWalletBalance() async {
+    if (!backendEnabled) return <String, dynamic>{};
+    await _ensureTokenLoaded();
+    final response = await _dio.get(ApiConstants.walletBalance);
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Get recent wallet transactions — `GET /wallet/transactions`.
+  Future<Map<String, dynamic>> getWalletTransactions() async {
+    if (!backendEnabled) return <String, dynamic>{};
+    await _ensureTokenLoaded();
+    final response = await _dio.get(ApiConstants.walletTransactions);
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Request a wallet top-up — `POST /wallet/top-up`.
+  ///
+  /// يرجّع `paymentUrl` من مزوّد الدفع (Kashier) لفتحه في المتصفح. الرصيد
+  /// يُحدَّث تلقائياً عبر Webhook بعد نجاح الدفع.
+  Future<Map<String, dynamic>> topUpWallet({
+    required double amount,
+    String paymentMethod = 'card',
+  }) async {
+    if (!backendEnabled) return <String, dynamic>{};
+    await _ensureTokenLoaded();
+    final response = await _dio.post(
+      ApiConstants.walletTopUp,
+      data: {'amount': amount, 'paymentMethod': paymentMethod},
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  // ── Notifications Endpoints ─────────────────────────
+
+  /// Get notifications list — `GET /captain/notifications`.
+  ///
+  /// ⚠️ الباك يقيد هذا المسار بدور CAPTAIN/DRIVER — الراكب سيحصل على 403 حتى
+  /// يُضاف endpoint خاص بالراكب. الاستثناء يتصاعد للشاشة لتظهر «لا توجد
+  /// إشعارات» بدلاً من أي بيانات وهمية.
+  Future<Map<String, dynamic>> getNotifications() async {
+    if (!backendEnabled) return <String, dynamic>{};
+    await _ensureTokenLoaded();
+    final response = await _dio.get(ApiConstants.notificationsList);
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Mark a notification as read — `PATCH /captain/notifications/:id/read`.
+  Future<bool> markNotificationRead(String id) async {
+    if (!backendEnabled) return false;
+    try {
+      await _dio.patch('${ApiConstants.notificationsMarkRead}$id/read');
+      return true;
+    } catch (e) {
+      logWarning('ApiService', 'markNotificationRead failed for $id: $e');
+      return false;
+    }
+  }
+
+  /// Get notification preferences — `GET /notifications/preferences`.
+  Future<bool> getNotificationPreferences() async {
+    if (!backendEnabled) return true;
+    try {
+      await _ensureTokenLoaded();
+      final response = await _dio.get(ApiConstants.notificationPreferences);
+      final data = response.data as Map<String, dynamic>;
+      return data['notificationPreferences'] as bool? ?? true;
+    } catch (e) {
+      logWarning('ApiService', 'getNotificationPreferences failed: $e');
+      return true;
+    }
+  }
+
+  /// Update notification preferences — `PUT /notifications/preferences`.
+  Future<bool> updateNotificationPreferences(bool enabled) async {
+    if (!backendEnabled) return false;
+    try {
+      await _ensureTokenLoaded();
+      await _dio.put(
+        ApiConstants.notificationPreferences,
+        data: {'notificationPreferences': enabled},
+      );
+      return true;
+    } catch (e) {
+      logWarning('ApiService', 'updateNotificationPreferences failed: $e');
+      return false;
+    }
+  }
+
+  // ── Upload Endpoints ─────────────────────────────────
+
+  /// Uploads an image file (avatar) — `POST /upload/profile`.
+  ///
+  /// يستخدم حقل multipart باسم `image` (كما يتوقع الباك)، ويرجّع
+  /// `{ imageUrl, publicId, ... }` من Cloudinary.
+  Future<Map<String, dynamic>> uploadProfileImage(String filePath) async {
+    if (!backendEnabled) return <String, dynamic>{};
+    await _ensureTokenLoaded();
+    final form = FormData.fromMap({
+      'image': await MultipartFile.fromFile(filePath),
+    });
+    final response = await _dio.post(
+      '${ApiConstants.uploadBase}profile',
+      data: form,
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   // ── Helper ───────────────────────────────────────────
 
   /// Extracts the JWT from an auth response, supporting both a top-level

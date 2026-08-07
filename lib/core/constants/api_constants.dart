@@ -28,4 +28,19 @@ class ApiConstants {
   static const String currentRide = '/rides/current';
   static const String rideHistory = '/rides/history';
   static const String rideFare = '/rides/fare';
+
+  // ── Wallet endpoints (راكب) ────────────────────────
+  static const String walletBalance = '/wallet/balance';
+  static const String walletTransactions = '/wallet/transactions';
+  static const String walletTopUp = '/wallet/top-up';
+
+  // ── Notifications endpoints ────────────────────────
+  /// قائمة إشعارات (مقيدة بدور CAPTAIN/DRIVER في الباك حالياً — الراكب
+  /// سيحصل على 403 حتى يُضاف endpoint خاص بالراكب).
+  static const String notificationsList = '/captain/notifications';
+  static const String notificationsMarkRead = '/captain/notifications/';
+  static const String notificationPreferences = '/notifications/preferences';
+
+  // ── Upload endpoints ───────────────────────────────
+  static const String uploadBase = '/upload/';
 }

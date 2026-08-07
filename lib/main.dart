@@ -13,9 +13,12 @@ import 'package:wasalny_rider/features/auth/reset_password_screen.dart';
 import 'package:wasalny_rider/features/home/home_screen.dart';
 import 'package:wasalny_rider/features/notifications/notifications_screen.dart';
 import 'package:wasalny_rider/features/profile/profile_screen.dart';
+import 'package:wasalny_rider/features/settings/settings_screen.dart';
 import 'package:wasalny_rider/features/trip/active_trip_screen.dart';
 import 'package:wasalny_rider/features/trip/trip_history_screen.dart';
 import 'package:wasalny_rider/features/trip/trip_rating_screen.dart';
+import 'package:wasalny_rider/features/about/about_screen.dart';
+import 'package:wasalny_rider/features/wallet/wallet_screen.dart';
 
 /// [runApp] is called only after Firebase has been initialised in `main()`,
 /// so any service that touches Firebase (e.g. [AuthService] → `FirebaseAuth`)
@@ -102,6 +105,12 @@ class MyApp extends StatelessWidget {
         return RouteTransitions.slideHorizontal(const NotificationsScreen());
       case '/profile':
         return RouteTransitions.slideHorizontal(const ProfileScreen());
+      case '/wallet':
+        return RouteTransitions.slideHorizontal(const WalletScreen());
+      case '/settings':
+        return RouteTransitions.slideHorizontal(const SettingsScreen());
+      case '/about':
+        return RouteTransitions.slideHorizontal(const AboutScreen());
       default:
         return RouteTransitions.fade(const SplashScreen());
     }
